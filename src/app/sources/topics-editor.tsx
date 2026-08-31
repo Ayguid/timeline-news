@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 
 /**
  * TopicsEditor — lets the user see & edit their personal significance tokens
@@ -10,6 +11,7 @@ import { useEffect, useState, useCallback } from 'react';
 const LANGS = ['en', 'es'];
 
 export default function TopicsEditor() {
+  const router = useRouter();
   const [lang, setLang] = useState('en');
   const [defaultTokens, setDefaultTokens] = useState<string[]>([]);
   const [userTokens, setUserTokens] = useState<string[]>([]);
@@ -18,19 +20,25 @@ export default function TopicsEditor() {
   // inline edit state
   const [editingToken, setEditingToken] = useState<string | null>(null);
   const [editValue, setEditValue] = useState('');
+  // Bump to refetch after add/rename/remove.
+  const [revision, setRevision] = useState(0);
 
-  const load = useCallback(async (l: string) => {
-    const res = await fetch(`/api/topics?lang=${l}`);
-    if (res.status === 401) {
-      window.location.href = '/auth/signin';
-      return;
-    }
-    const data = await res.json();
-    setDefaultTokens(data.defaultTokens ?? []);
-    setUserTokens(data.userTokens ?? []);
-  }, []);
-
-  useEffect(() => { load(lang); }, [lang, load]);
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const res = await fetch(`/api/topics?lang=${lang}`);
+        if (res.status === 401) { router.replace('/auth/signin'); return; }
+        const data = await res.json();
+        if (!alive) return;
+        setDefaultTokens(data.defaultTokens ?? []);
+        setUserTokens(data.userTokens ?? []);
+      } catch {
+        // ignore
+      }
+    })();
+    return () => { alive = false; };
+  }, [lang, router, revision]);
 
   async function addToken(e: React.FormEvent) {
     e.preventDefault();
@@ -42,7 +50,7 @@ export default function TopicsEditor() {
     });
     if (res.ok) {
       setNewToken('');
-      await load(lang);
+      setRevision((r) => r + 1);
     } else {
       const d = await res.json().catch(() => ({}));
       setError(d.error ?? 'failed to add token');
@@ -55,7 +63,7 @@ export default function TopicsEditor() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ lang, token }),
     });
-    await load(lang);
+    setRevision((r) => r + 1);
   }
 
   function beginEdit(token: string) {
@@ -80,7 +88,7 @@ export default function TopicsEditor() {
     if (res.ok) {
       setEditingToken(null);
       setNewToken('');
-      await load(lang);
+      setRevision((r) => r + 1);
     } else {
       const d = await res.json().catch(() => ({}));
       setError(d.error ?? 'failed to rename token');

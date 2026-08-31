@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import TopicsEditor from './topics-editor';
 
@@ -14,6 +15,7 @@ type Source = {
 };
 
 export default function SourcesPage() {
+  const router = useRouter();
   const [sources, setSources] = useState<Source[]>([]);
   const [loading, setLoading] = useState(true);
   const [name, setName] = useState('');
@@ -26,24 +28,25 @@ export default function SourcesPage() {
   const [editForm, setEditForm] = useState<{ name: string; feedUrl: string; region: string; active: boolean }>({
     name: '', feedUrl: '', region: '', active: true,
   });
+  // Bump to refetch after any mutation (add/edit/delete).
+  const [revision, setRevision] = useState(0);
 
-  const load = useCallback(async () => {
-    try {
-      const res = await fetch('/api/sources');
-      if (res.status === 401) {
-        window.location.href = '/auth/signin';
-        return;
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const res = await fetch('/api/sources');
+        if (res.status === 401) { router.replace('/auth/signin'); return; }
+        const data = await res.json();
+        if (alive) setSources(data.sources ?? []);
+      } catch {
+        // ignore
+      } finally {
+        if (alive) setLoading(false);
       }
-      const data = await res.json();
-      setSources(data.sources ?? []);
-    } catch {
-      // ignore
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => { load(); }, [load]);
+    })();
+    return () => { alive = false; };
+  }, [router, revision]);
 
   async function addSource(e: React.FormEvent) {
     e.preventDefault();
@@ -60,7 +63,7 @@ export default function SourcesPage() {
       setRegion('');
       setAdapterType('rss');
       setMsg('Subscribed. Add a few, then run the pipeline to build your timeline.');
-      await load();
+      setRevision((r) => r + 1);
     } else {
       const d = await res.json().catch(() => ({}));
       setError(d.error ?? 'failed to add feed');
@@ -87,7 +90,7 @@ export default function SourcesPage() {
     if (res.ok) {
       setEditingId(null);
       setMsg('Source updated.');
-      await load();
+      setRevision((r) => r + 1);
     } else {
       const d = await res.json().catch(() => ({}));
       setError(d.error ?? 'failed to update source');
@@ -99,7 +102,7 @@ export default function SourcesPage() {
     const res = await fetch(`/api/sources/${s.id}`, { method: 'DELETE' });
     if (res.ok) {
       setMsg(`Deleted "${s.name}".`);
-      await load();
+      setRevision((r) => r + 1);
     } else {
       setError('failed to delete source');
     }

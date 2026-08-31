@@ -8,7 +8,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint",
+    "lint": "eslint .",
     "migrate": "node --env-file=.env scripts/apply-migrations.mjs",
     "seed": "tsx scripts/seed.ts",
     "pipeline": "tsx scripts/run-pipeline.ts",
@@ -34,7 +34,9 @@
     "@types/react-dom": "^19.2.5",
     "@types/xml2js": "^0.4.14",
     "drizzle-kit": "^0.31.10",
+    "eslint": "^9.39.5",
+    "eslint-config-next": "^16.3.4",
     "tsx": "^4.23.13",
-    "typescript": "^7.0.2"
+    "typescript": "^5.9.3"
   }
 }

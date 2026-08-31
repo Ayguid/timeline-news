@@ -1,9 +1,11 @@
 'use client';
 
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { signIn } from 'next-auth/react';
 
 export default function SignInPage() {
+  const router = useRouter();
   const [email, setEmail] = useState('');
   const [sent, setSent] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -23,7 +25,7 @@ export default function SignInPage() {
   async function devLogin() {
     setError(null);
     const res = await fetch('/api/dev-login');
-    if (res.ok) window.location.href = '/';
+    if (res.ok) router.push('/');
     else setError('dev login unavailable');
   }
 

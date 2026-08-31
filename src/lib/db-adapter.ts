@@ -11,13 +11,17 @@
 import type { Adapter, AdapterUser, AdapterSession, VerificationToken } from 'next-auth/adapters';
 import { sql } from './db';
 
-function rowToUser(r: any): AdapterUser {
+// Shape of a `users` row returned by the postgres driver (loose — field
+// access is validated against the schema, not spelled out as a record).
+type UserRow = Record<string, unknown>;
+
+function rowToUser(r: UserRow): AdapterUser {
   return {
-    id: r.id,
-    name: r.name ?? null,
-    email: r.email,
-    emailVerified: r.email_verified ?? null,
-    image: r.image ?? null,
+    id: String(r.id),
+    name: typeof r.name === 'string' ? r.name : null,
+    email: String(r.email),
+    emailVerified: r.email_verified instanceof Date ? r.email_verified : null,
+    image: typeof r.image === 'string' ? r.image : null,
   };
 }
 
