@@ -14,7 +14,9 @@ const MIGRATIONS_DIR = join(__dirname, '..', 'migrations');
 const DATABASE_URL = process.env.DATABASE_URL;
 if (!DATABASE_URL) throw new Error('DATABASE_URL is not set');
 
-const sql = postgres(DATABASE_URL, { ssl: 'require' });
+// max:1 — required so sql.unsafe can run multi-statement migrations
+// (BEGIN/COMMIT + several statements on one connection).
+const sql = postgres(DATABASE_URL, { ssl: 'require', max: 1 });
 
 async function main() {
   await sql`CREATE TABLE IF NOT EXISTS schema_migrations (

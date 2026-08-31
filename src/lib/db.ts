@@ -4,6 +4,11 @@
 // Shared by pipeline scripts (Node) and API routes (Next).
 // ============================================================================
 import postgres from 'postgres';
+import { config } from 'dotenv';
+
+// Load .env for script entrypoints (tsx seed / pipeline). Next.js already
+// injects env at build/runtime, so this is a no-op there. Safe to always run.
+config();
 
 const DATABASE_URL = process.env.DATABASE_URL;
 if (!DATABASE_URL) {

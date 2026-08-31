@@ -19,7 +19,9 @@ A single end-to-end path is the goal before adding breadth:
 Implemented so far:
 - [x] Schema & migrations (Postgres/Neon), applied idempotently by `npm run migrate`
 - [x] `SourceAdapter` contract (the seam) + generic `rss` adapter
-- [x] Clustering heuristic (same-day window + title-token overlap) — no ML yet
+- [x] Clustering heuristic — 2 passes: token-overlap grouping, then fragment
+      merge (same event phrased differently by outlets). Verified against live
+      feeds: Nepal-Tibet floods collapse from 5 fragments into 1 multi-source event.
 - [x] Significance scoring (source corroboration + curated topics), language-aware
 - [x] User-curated sources (add/remove any RSS feed) — `npm run seed` pre-loads starters
 - [x] Multi-language significance topics (en/es defaults) + per-user topic editor
@@ -27,6 +29,8 @@ Implemented so far:
 - [x] API routes: `sources`, `timeline`, `topics`
 - [x] Timeline page (chronological) + Sources page + topics editor
 - [x] GitHub Actions cron ingestion (`ingest.yml`)
+- [x] End-to-end verified against a live Neon DB: 130+ articles from 5 feeds
+      (4 EN + 1 ES), clustered into auto-approved + proposed events.
 
 Planned / deferred:
 - [ ] HTML scrapers for sources without RSS (cheerio, after robots.txt check)

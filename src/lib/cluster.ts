@@ -1,9 +1,11 @@
 // ============================================================================
 // cluster.ts — the real product per soul.md.
 // Groups recent raw_articles into candidate "events" using v1 heuristics:
-//   same-day window + significant title-token overlap.
-// No ML/embeddings yet — but this module is the clean seam to swap that in
-// later. Keep signature stable: RawArticle[] -> EventCandidate[].
+//   pass 1: greedy grouping (same-day window + title-token Jaccard overlap)
+//   pass 2: merge fragments (same event phrased differently by outlets) when
+//           they share distinctive tokens within a wider window
+// No ML/embeddings yet — but keep the signature stable: RawArticle[] ->
+// EventCandidate[], so a smarter backend can slot in behind the same seam.
 // ============================================================================
 
 export interface RawArticleInput {
@@ -26,7 +28,7 @@ export interface EventCandidate {
 
 // --- normalization for token comparison --------------------------------
 const STOPWORDS = new Set(
-  'the a an and or of to in on for with at by from is are was were be has had have this that it its as not but how what when where who why'.split(' '),
+  'the a an and or of to in on for with at by from is are was were be has had have this that it its as not but how what when where who why off over into about after before against between under while during through'.split(' '),
 );
 
 function tokens(title: string): string[] {
@@ -37,6 +39,15 @@ function tokens(title: string): string[] {
     .filter((w) => w.length > 2 && !STOPWORDS.has(w));
 }
 
+/** Word-like tokens that are distinctive enough to signal "same event":
+ *  length >= 6 (skips small function-ish words), stopword-filtered. */
+function distinctive(title: string): Set<string> {
+  const t = title.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').split(/\s+/);
+  const out = new Set<string>();
+  for (const w of t) if (w.length >= 6 && !STOPWORDS.has(w)) out.add(w);
+  return out;
+}
+
 function jaccard(a: Set<string>, b: Set<string>): number {
   if (a.size === 0 || b.size === 0) return 0;
   let inter = 0;
@@ -44,25 +55,63 @@ function jaccard(a: Set<string>, b: Set<string>): number {
   return inter / (a.size + b.size - inter);
 }
 
-function sameDay(a: Date, b: Date, windowHours = 24): boolean {
+function withinWindow(a: Date, b: Date, windowHours: number): boolean {
   return Math.abs(a.getTime() - b.getTime()) <= windowHours * 60 * 60 * 1000;
+}
+
+/** Build a single EventCandidate from its member article ids. */
+function buildCandidate(memberIds: string[], byId: Map<string, RawArticleInput>): EventCandidate {
+  const members = memberIds.map((id) => byId.get(id)!);
+  const sorted = [...members].sort((a, b) => a.publishedAt.getTime() - b.publishedAt.getTime());
+  const rep = sorted[0];
+  const distinctSources = new Set(members.map((m) => m.sourceId));
+
+  // Title = longest member title (usually most specific); summary notes
+  // corroboration so the user sees multi-source coverage at a glance.
+  const title = [...members].sort((a, b) => b.title.length - a.title.length)[0].title;
+  const sources = [...distinctSources];
+  const summary =
+    sources.length > 1
+      ? `Covered by ${sources.length} sources. Primary headline: ${title}`
+      : title;
+
+  // Primary language = the earliest (representative) member's language,
+  // falling back to the language spoken by the majority of members.
+  const withLang = members.filter((m) => m.lang);
+  const repLang = withLang[0]?.lang;
+  const langCounts = new Map<string, number>();
+  for (const m of withLang) langCounts.set(m.lang!, (langCounts.get(m.lang!) ?? 0) + 1);
+  const lang = repLang ?? [...langCounts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? 'en';
+
+  return {
+    title,
+    summary,
+    eventDate: rep.publishedAt,
+    memberIds,
+    sourceIds: sources,
+    lang,
+  };
 }
 
 /** Store article id -> raw article for lookups during clustering. */
 export function clusterArticles(articles: RawArticleInput[], opts?: {
   windowHours?: number;
-  minOverlap?: number; // jaccard threshold to consider two articles the same event
+  minOverlap?: number; // jaccard threshold to call two articles the same event
+  mergeHours?: number; // window for pass-2 fragment merging
+  mergeTokens?: number; // distinctive shared tokens required to merge fragments
 }): EventCandidate[] {
   const windowHours = opts?.windowHours ?? 24;
   const minOverlap = opts?.minOverlap ?? 0.35;
+  const mergeHours = opts?.mergeHours ?? 72;
+  const mergeTokens = opts?.mergeTokens ?? 2;
 
   const byId = new Map(articles.map((a) => [a.id, a]));
   const tokenSets = new Map(articles.map((a) => [a.id, new Set(tokens(a.title))]));
-  const memberships = new Map<string, string[]>(); // candidateId -> member ids
   const used = new Set<string>();
+  const groups: string[][] = [];
 
-  // Greedy: seed each event with an unused article, then absorb close SILINGS
-  // within the time window. O(n^2) worst case — fine for <~500 recent articles.
+  // Pass 1 — greedy: seed each event with an unused article, absorb close
+  // siblings within the time window. O(n^2) worst case — fine for <~500.
   for (const seed of articles) {
     if (used.has(seed.id)) continue;
 
@@ -72,56 +121,51 @@ export function clusterArticles(articles: RawArticleInput[], opts?: {
 
     for (const other of articles) {
       if (used.has(other.id)) continue;
-      if (!sameDay(seed.publishedAt, other.publishedAt, windowHours)) continue;
-      const ov = jaccard(seedTokens, tokenSets.get(other.id)!);
-      if (ov >= minOverlap) {
+      if (!withinWindow(seed.publishedAt, other.publishedAt, windowHours)) continue;
+      if (jaccard(seedTokens, tokenSets.get(other.id)!) >= minOverlap) {
         group.push(other.id);
         used.add(other.id);
       }
     }
-
-    // representative = earliest publish time in group, then longest title
-    const members = group
-      .map((id) => byId.get(id)!)
-      .sort((a, b) => a.publishedAt.getTime() - b.publishedAt.getTime());
-    const representative = members[0];
-
-    memberships.set(representative.id, group);
+    groups.push(group);
   }
 
-  const candidates: EventCandidate[] = [];
-  for (const [seedId, group] of memberships) {
-    const members = group.map((id) => byId.get(id)!);
-    const sorted = [...members].sort((a, b) => a.publishedAt.getTime() - b.publishedAt.getTime());
-    const rep = sorted[0];
-    const distinctSources = new Set(members.map((m) => m.sourceId));
+  // Pass 2 — merge fragments: outlets phrase one story very differently, so
+  // pass-1 Jaccard misses them (observed: Nepal-Tibet floods, 1 event split
+  // across 5 headlines). Merge two groups when their members share enough
+  // DISTINCTIVE tokens within a wider window.
+  const groupTokens = groups.map((g) => {
+    const set = new Set<string>();
+    for (const id of g) for (const t of distinctive(byId.get(id)!.title)) set.add(t);
+    return set;
+  });
 
-    // Title = longest member title (usually most specific); summary lists
-    // the distinct sources so the user can see corroboration at a glance.
-    const title = [...members].sort((a, b) => b.title.length - a.title.length)[0].title;
-    const sources = [...distinctSources];
-    const summary =
-      sources.length > 1
-        ? `Covered by ${sources.length} sources. Primary headline: ${title}`
-        : title;
+  const merged: number[] = []; // group indices already folded in
+  const final: EventCandidate[] = [];
 
-    // Primary language = language of the earliest (representative) member,
-    // falling back to the language spoken by the majority of members.
-    const withLang = members.filter((m) => m.lang);
-    const repLang = withLang[0]?.lang;
-    const langCounts = new Map<string, number>();
-    for (const m of withLang) langCounts.set(m.lang!, (langCounts.get(m.lang!) ?? 0) + 1);
-    const lang = repLang ?? [...langCounts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? 'en';
+  for (let i = 0; i < groups.length; i++) {
+    if (merged.includes(i)) continue;
+    const acc: string[] = [...groups[i]];
+    const accTokens = new Set(groupTokens[i]);
 
-    candidates.push({
-      title,
-      summary,
-      eventDate: rep.publishedAt,
-      memberIds: group,
-      sourceIds: sources,
-      lang,
-    });
+    for (let j = i + 1; j < groups.length; j++) {
+      if (merged.includes(j)) continue;
+      // merge only if temporally close AND share enough distinctive tokens
+      const aDate = byId.get(groups[i][0])!.publishedAt;
+      const bDate = byId.get(groups[j][0])!.publishedAt;
+      if (!withinWindow(aDate, bDate, mergeHours)) continue;
+
+      let shared = 0;
+      for (const t of accTokens) if (groupTokens[j].has(t)) shared++;
+      if (shared < mergeTokens) continue;
+
+      acc.push(...groups[j]);
+      for (const t of groupTokens[j]) accTokens.add(t);
+      merged.push(j);
+    }
+
+    final.push(buildCandidate(acc, byId));
   }
 
-  return candidates;
+  return final;
 }
