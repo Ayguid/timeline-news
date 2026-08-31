@@ -1,0 +1,83 @@
+// ============================================================================
+// /api/topics — user-editable significance tokens.
+//   GET  ?lang=en  — default tokens + the user's overrides for that language
+//   POST {lang, token}      — add a token the user considers significant
+//   DELETE {lang, token}    — remove one of the user's own tokens
+// This is the "user can edit & modify SIGNIFICANT_TOPIC_TOKENS" feature.
+// ============================================================================
+import { NextResponse } from 'next/server';
+import { sql } from '@/lib/db';
+import { auth } from '@/auth';
+
+function newId(prefix: string): string {
+  return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+export async function GET(req: Request) {
+  const session = await auth();
+  if (!session?.user?.id) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+
+  const url = new URL(req.url);
+  const lang = url.searchParams.get('lang') ?? 'en';
+
+  const [defaults, overrides] = await Promise.all([
+    sql`SELECT token FROM significant_topics WHERE lang = ${lang} ORDER BY token`,
+    sql`SELECT token FROM user_topic_tokens WHERE user_id = ${session.user.id} AND lang = ${lang} ORDER BY token`,
+  ]);
+
+  return NextResponse.json({
+    lang,
+    defaultTokens: defaults.map((r) => r.token),
+    userTokens: overrides.map((r) => r.token),
+  });
+}
+
+export async function POST(req: Request) {
+  const session = await auth();
+  if (!session?.user?.id) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+
+  let body: { lang?: string; token?: string };
+  try {
+    body = await req.json();
+  } catch {
+    return NextResponse.json({ error: 'invalid json' }, { status: 400 });
+  }
+
+  const lang = body.lang?.trim().toLowerCase() || 'en';
+  const token = body.token?.trim().toLowerCase();
+  if (!token || !/^[a-z]{2,}$/.test(token)) {
+    return NextResponse.json({ error: 'token must be 2+ letters' }, { status: 400 });
+  }
+  if (token.length > 40) {
+    return NextResponse.json({ error: 'token too long' }, { status: 400 });
+  }
+
+  await sql`
+    INSERT INTO user_topic_tokens (id, user_id, lang, token)
+    VALUES (${newId('utok')}, ${session.user.id}, ${lang}, ${token})
+    ON CONFLICT (user_id, lang, token) DO NOTHING
+  `;
+  return NextResponse.json({ lang, token }, { status: 201 });
+}
+
+export async function DELETE(req: Request) {
+  const session = await auth();
+  if (!session?.user?.id) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+
+  let body: { lang?: string; token?: string };
+  try {
+    body = await req.json();
+  } catch {
+    return NextResponse.json({ error: 'invalid json' }, { status: 400 });
+  }
+
+  const lang = body.lang?.trim().toLowerCase() || 'en';
+  const token = body.token?.trim().toLowerCase();
+  if (!token) return NextResponse.json({ error: 'token required' }, { status: 400 });
+
+  await sql`
+    DELETE FROM user_topic_tokens
+    WHERE user_id = ${session.user.id} AND lang = ${lang} AND token = ${token}
+  `;
+  return NextResponse.json({ ok: true });
+}

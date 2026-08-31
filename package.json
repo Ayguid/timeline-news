@@ -1,0 +1,38 @@
+{
+  "name": "timeline-news",
+  "version": "0.1.0",
+  "description": "A chronological timeline of world events, multi-sourced.",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "migrate": "node scripts/apply-migrations.mjs",
+    "seed": "tsx scripts/seed.ts",
+    "pipeline": "tsx scripts/run-pipeline.ts",
+    "pipeline:dry": "tsx scripts/run-pipeline.ts --dry-run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@auth/drizzle-adapter": "^1.11.3",
+    "cheerio": "^1.2.0",
+    "drizzle-orm": "^0.45.2",
+    "next": "^16.3.3",
+    "next-auth": "^5.0.0-beta.32",
+    "postgres": "^3.4.9",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "rss-parser": "^3.13.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.4.0",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.5",
+    "@types/xml2js": "^0.4.14",
+    "drizzle-kit": "^0.31.10",
+    "tsx": "^4.23.13",
+    "typescript": "^7.0.2"
+  }
+}

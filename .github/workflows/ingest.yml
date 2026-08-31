@@ -1,0 +1,36 @@
+name: ingest
+
+on:
+  schedule:
+    # every 3 hours — free scheduled compute for ingestion
+    - cron: '0 */3 * * *'
+  workflow_dispatch: {}
+
+jobs:
+  run-pipeline:
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      AUTH_SECRET: ${{ secrets.AUTH_SECRET }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Apply migrations
+        env:
+          # psql isn't installed; apply the schema via a tiny node script instead.
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: node scripts/apply-migrations.mjs
+
+      - name: Seed demo user + starter sources (idempotent)
+        run: npx tsx scripts/seed.ts
+
+      - name: Run ingestion pipeline
+        run: npx tsx scripts/run-pipeline.ts

@@ -1,0 +1,15 @@
+# --- gitignore ---
+node_modules/
+.next/
+out/
+*.tsbuildinfo
+next-env.d.ts
+
+# env / secrets — NEVER commit real values
+.env
+.env.local
+.env*.local
+
+# misc
+.DS_Store
+*.log
