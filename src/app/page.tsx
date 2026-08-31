@@ -1,5 +1,5 @@
 import { sql } from '@/lib/db';
-import { auth } from '@/auth';
+import { currentUser } from '@/lib/session';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 
@@ -28,8 +28,8 @@ function fmtDate(iso: string): string {
 export const dynamic = 'force-dynamic';
 
 export default async function TimelinePage() {
-  const session = await auth();
-  if (!session?.user?.id) redirect('/auth/signin');
+  const session = await currentUser();
+  if (!session?.id) redirect('/auth/signin');
 
   const rows = await sql`
     SELECT e.id, e.title, e.summary, e.event_date AS "eventDate",
@@ -48,7 +48,7 @@ export default async function TimelinePage() {
     JOIN event_articles ea ON ea.event_id = e.id
     JOIN raw_articles a ON a.id = ea.article_id
     JOIN sources s ON s.id = a.source_id
-    WHERE e.user_id = ${session.user.id}
+    WHERE e.user_id = ${session.id}
       AND e.status = 'approved'
     GROUP BY e.id
     ORDER BY e.event_date ASC
@@ -58,7 +58,7 @@ export default async function TimelinePage() {
   return (
     <div className="wrap">
       <nav className="top">
-        <span>{session.user.email}</span>
+        <span>{session.email ?? 'Demo'}</span>
         <Link href="/sources">Sources</Link>
       </nav>
 

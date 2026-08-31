@@ -7,22 +7,22 @@
 // ============================================================================
 import { NextResponse } from 'next/server';
 import { sql } from '@/lib/db';
-import { auth } from '@/auth';
+import { currentUser } from '@/lib/session';
 
 function newId(prefix: string): string {
   return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
 export async function GET(req: Request) {
-  const session = await auth();
-  if (!session?.user?.id) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+  const session = await currentUser();
+  if (!session?.id) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
 
   const url = new URL(req.url);
   const lang = url.searchParams.get('lang') ?? 'en';
 
   const [defaults, overrides] = await Promise.all([
     sql`SELECT token FROM significant_topics WHERE lang = ${lang} ORDER BY token`,
-    sql`SELECT token FROM user_topic_tokens WHERE user_id = ${session.user.id} AND lang = ${lang} ORDER BY token`,
+    sql`SELECT token FROM user_topic_tokens WHERE user_id = ${session.id} AND lang = ${lang} ORDER BY token`,
   ]);
 
   return NextResponse.json({
@@ -33,8 +33,8 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
-  const session = await auth();
-  if (!session?.user?.id) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+  const session = await currentUser();
+  if (!session?.id) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
 
   let body: { lang?: string; token?: string };
   try {
@@ -54,15 +54,15 @@ export async function POST(req: Request) {
 
   await sql`
     INSERT INTO user_topic_tokens (id, user_id, lang, token)
-    VALUES (${newId('utok')}, ${session.user.id}, ${lang}, ${token})
+    VALUES (${newId('utok')}, ${session.id}, ${lang}, ${token})
     ON CONFLICT (user_id, lang, token) DO NOTHING
   `;
   return NextResponse.json({ lang, token }, { status: 201 });
 }
 
 export async function DELETE(req: Request) {
-  const session = await auth();
-  if (!session?.user?.id) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+  const session = await currentUser();
+  if (!session?.id) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
 
   let body: { lang?: string; token?: string };
   try {
@@ -77,7 +77,7 @@ export async function DELETE(req: Request) {
 
   await sql`
     DELETE FROM user_topic_tokens
-    WHERE user_id = ${session.user.id} AND lang = ${lang} AND token = ${token}
+    WHERE user_id = ${session.id} AND lang = ${lang} AND token = ${token}
   `;
   return NextResponse.json({ ok: true });
 }

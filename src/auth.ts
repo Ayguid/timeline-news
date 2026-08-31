@@ -1,15 +1,16 @@
 // ============================================================================
-// auth.ts — NextAuth v5 config. Email magic-link provider (no passwords to
-// store — aligns with the "one click in" UX). Uses a small native Adapter
-// (src/lib/db-adapter.ts) backed by our Postgres schema.
+// auth.ts — NextAuth v5 config. Two sign-in options:
+//   1. Google OAuth (when AUTH_GOOGLE_ID + AUTH_GOOGLE_SECRET are set)
+//   2. Email magic-link (when EMAIL_SERVER is set)
+// Uses a small native Adapter (src/lib/db-adapter.ts) backed by our Postgres.
 //
-// EMAIL_SERVER_ env must be fully set in .env / Vercel for magic links to work.
-// If it's absent (dev without an SMTP provider), we still build and serve the
-// app, but sign-in is unavailable until it's configured. Nodemailer throws at
-// import time if `server` is falsy, so we only mount the provider when set.
+// Providers are mounted only when their env config is present, so the app
+// always builds — even with none configured (sign-in is simply unavailable
+// until one is added). Docs: https://authjs.dev
 // ============================================================================
 import NextAuth from 'next-auth';
 import Email from 'next-auth/providers/email';
+import Google from 'next-auth/providers/google';
 import { authAdapter } from './lib/db-adapter';
 
 function emailProvider() {
@@ -23,9 +24,16 @@ function emailProvider() {
   ];
 }
 
+function googleProvider() {
+  const clientId = process.env.AUTH_GOOGLE_ID;
+  const clientSecret = process.env.AUTH_GOOGLE_SECRET;
+  if (!clientId || !clientSecret) return [];
+  return [Google({ clientId, clientSecret })];
+}
+
 export const { handlers, auth, signIn, signOut } = NextAuth({
   adapter: authAdapter,
-  providers: emailProvider(),
+  providers: [...googleProvider(), ...emailProvider()],
   session: { strategy: 'database' },
   pages: { signIn: '/auth/signin' },
   callbacks: {

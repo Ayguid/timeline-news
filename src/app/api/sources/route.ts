@@ -4,27 +4,27 @@
 // ============================================================================
 import { NextResponse } from 'next/server';
 import { sql } from '@/lib/db';
-import { auth } from '@/auth';
+import { currentUser } from '@/lib/session';
 
 function newId(prefix: string): string {
   return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
 export async function GET() {
-  const session = await auth();
-  if (!session?.user?.id) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+  const session = await currentUser();
+  if (!session?.id) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
 
   const sources = await sql`
     SELECT id, name, feed_url AS "feedUrl", adapter_type AS "adapterType",
            lang, region, active, created_at AS "createdAt"
-    FROM sources WHERE user_id = ${session.user.id} ORDER BY created_at ASC
+    FROM sources WHERE user_id = ${session.id} ORDER BY created_at ASC
   `;
   return NextResponse.json({ sources });
 }
 
 export async function POST(req: Request) {
-  const session = await auth();
-  if (!session?.user?.id) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+  const session = await currentUser();
+  if (!session?.id) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
 
   let body: { name?: string; feedUrl?: string; region?: string };
   try {
@@ -49,7 +49,7 @@ export async function POST(req: Request) {
     const id = newId('src');
     await sql`
       INSERT INTO sources (id, user_id, name, feed_url, adapter_type, lang, region, active)
-      VALUES (${id}, ${session.user.id}, ${name}, ${feedUrl}, 'rss', 'en',
+      VALUES (${id}, ${session.id}, ${name}, ${feedUrl}, 'rss', 'en',
               ${body.region ?? null}, true)
     `;
     return NextResponse.json({ id, name, feedUrl }, { status: 201 });

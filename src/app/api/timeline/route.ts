@@ -7,11 +7,11 @@
 // ============================================================================
 import { NextResponse } from 'next/server';
 import { sql } from '@/lib/db';
-import { auth } from '@/auth';
+import { currentUser } from '@/lib/session';
 
 export async function GET(req: Request) {
-  const session = await auth();
-  if (!session?.user?.id) {
+  const session = await currentUser();
+  if (!session?.id) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   }
 
@@ -40,7 +40,7 @@ export async function GET(req: Request) {
     JOIN event_articles ea ON ea.event_id = e.id
     JOIN raw_articles a ON a.id = ea.article_id
     JOIN sources s ON s.id = a.source_id
-    WHERE e.user_id = ${session.user.id}
+    WHERE e.user_id = ${session.id}
       AND e.event_date > now() - (${days} || ' days')::interval
       ${whereStatus}
     GROUP BY e.id

@@ -48,6 +48,34 @@ export const authAdapter: Adapter = {
     return rows.length ? rowToUser(rows[0]) : null;
   },
 
+  // OAuth: find the user already linked to a provider account (Google etc.)
+  async getUserByAccount(account) {
+    const rows = await sql`
+      SELECT u.* FROM users u
+      JOIN accounts a ON a.user_id = u.id
+      WHERE a.provider = ${account.provider}
+        AND a.provider_account_id = ${account.providerAccountId}
+      LIMIT 1
+    `;
+    return rows.length ? rowToUser(rows[0]) : null;
+  },
+
+  // OAuth: link a provider account to an existing (or freshly created) user.
+  async linkAccount(account) {
+    const str = (v: unknown) => (typeof v === 'string' ? v : v == null ? null : String(v));
+    await sql`
+      INSERT INTO accounts (user_id, type, provider, provider_account_id,
+                             refresh_token, access_token, expires_at,
+                             token_type, scope, id_token, session_state)
+      VALUES (${account.userId}, ${account.type}, ${account.provider},
+              ${account.providerAccountId}, ${str(account.refresh_token)},
+              ${str(account.access_token)}, ${account.expires_at ?? null},
+              ${str(account.token_type)}, ${str(account.scope)},
+              ${str(account.id_token)}, ${str(account.session_state)})
+      ON CONFLICT (provider, provider_account_id) DO NOTHING
+    `;
+  },
+
   async updateUser(user) {
     const rows = await sql`
       UPDATE users SET
