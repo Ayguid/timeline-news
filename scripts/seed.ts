@@ -24,6 +24,13 @@ const STARTER_FEEDS = [
   { name: 'El País Internacional', url: 'https://feeds.elpais.com/mrss-s/pages/ep/site/elpais.com/portada', region: 'es', lang: 'es' },
 ];
 
+// adapter type rows (the code seam) — every adapter registered in code must
+// have a row here or sources referencing it will fail the FK constraint.
+const ADAPTER_ROWS = [
+  { id: newId('adap'), name: 'Generic RSS/Atom feed', type: 'rss', desc: 'Ingests any user-added RSS/Atom feed URL.' },
+  { id: newId('adap'), name: 'Generic HTML page (no RSS)', type: 'html', desc: 'Scrapes headlines from a page URL when no RSS feed exists (respects robots.txt).' },
+];
+
 async function main() {
   try {
     if (reset) {
@@ -41,13 +48,14 @@ async function main() {
       console.log('[seed] reset done');
     }
 
-    // adapter type row (the code seam)
-    await sql`
-      INSERT INTO source_adapters (id, name, adapter_type, description)
-      VALUES (${newId('adap')}, 'Generic RSS/Atom feed', 'rss',
-              'Ingests any user-added RSS/Atom feed URL.')
-      ON CONFLICT (adapter_type) DO NOTHING
-    `;
+    // adapter type rows (code seam)
+    for (const a of ADAPTER_ROWS) {
+      await sql`
+        INSERT INTO source_adapters (id, name, adapter_type, description)
+        VALUES (${a.id}, ${a.name}, ${a.type}, ${a.desc})
+        ON CONFLICT (adapter_type) DO NOTHING
+      `;
+    }
 
     // demo user (id stable so pipelines can attach events)
     await sql`

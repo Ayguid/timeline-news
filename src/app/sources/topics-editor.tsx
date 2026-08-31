@@ -15,6 +15,9 @@ export default function TopicsEditor() {
   const [userTokens, setUserTokens] = useState<string[]>([]);
   const [newToken, setNewToken] = useState('');
   const [error, setError] = useState<string | null>(null);
+  // inline edit state
+  const [editingToken, setEditingToken] = useState<string | null>(null);
+  const [editValue, setEditValue] = useState('');
 
   const load = useCallback(async (l: string) => {
     const res = await fetch(`/api/topics?lang=${l}`);
@@ -55,6 +58,36 @@ export default function TopicsEditor() {
     await load(lang);
   }
 
+  function beginEdit(token: string) {
+    setEditingToken(token);
+    setEditValue(token);
+    setError(null);
+  }
+
+  async function saveEdit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!editingToken) return;
+    const newToken = editValue.trim().toLowerCase();
+    if (!newToken || newToken === editingToken) {
+      setEditingToken(null);
+      return;
+    }
+    const res = await fetch('/api/topics', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ lang, oldToken: editingToken, newToken }),
+    });
+    if (res.ok) {
+      setEditingToken(null);
+      setNewToken('');
+      await load(lang);
+    } else {
+      const d = await res.json().catch(() => ({}));
+      setError(d.error ?? 'failed to rename token');
+      setEditingToken(null);
+    }
+  }
+
   return (
     <section style={{ marginTop: 32 }}>
       <h2>Significance topics</h2>
@@ -93,11 +126,27 @@ export default function TopicsEditor() {
       {userTokens.length > 0 && (
         <div style={{ marginBottom: 12 }}>
           <strong style={{ fontSize: '0.85rem', color: 'var(--muted)' }}>Your additions ({lang.toUpperCase()}):</strong>{' '}
-          {userTokens.map((t) => (
-            <span key={t} className="badge" style={{ marginRight: 6, cursor: 'pointer' }} onClick={() => removeToken(t)} title="click to remove">
-              {t} ✕
-            </span>
-          ))}
+          {userTokens.map((t) =>
+            editingToken === t ? (
+              <form key={t} onSubmit={saveEdit} style={{ display: 'inline-flex', gap: 6, marginRight: 6 }}>
+                <input
+                  value={editValue}
+                  onChange={(e) => setEditValue(e.target.value)}
+                  autoFocus
+                  pattern="[a-z]{2,40}"
+                  style={{ width: 120 }}
+                />
+                <button type="submit">✓</button>
+                <button type="button" onClick={() => setEditingToken(null)}>✕</button>
+              </form>
+            ) : (
+              <span key={t} className="badge" style={{ marginRight: 6 }}>
+                {t}{' '}
+                <span style={{ cursor: 'pointer' }} title="rename" onClick={() => beginEdit(t)}>✎</span>{' '}
+                <span style={{ cursor: 'pointer' }} title="remove" onClick={() => removeToken(t)}>✕</span>
+              </span>
+            ),
+          )}
         </div>
       )}
 

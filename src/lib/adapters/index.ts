@@ -61,9 +61,11 @@ export interface SourceAdapter {
 // Register new adapters here.
 // ============================================================================
 import { rssAdapter } from './rss';
+import { htmlAdapter } from './html';
 
 const adapterRegistry: Record<string, SourceAdapter> = {
   [rssAdapter.id]: rssAdapter,
+  [htmlAdapter.id]: htmlAdapter,
 };
 
 export function getAdapter(type: string): SourceAdapter {

@@ -18,13 +18,18 @@ A single end-to-end path is the goal before adding breadth:
 
 Implemented so far:
 - [x] Schema & migrations (Postgres/Neon), applied idempotently by `npm run migrate`
-- [x] `SourceAdapter` contract (the seam) + generic `rss` adapter
+- [x] `SourceAdapter` contract (the seam) + `rss` adapter + generic `html` scraper
+      fallback (respects robots.txt; extracts headlines via heuristics — works
+      for server-rendered outlets, degraded for JS-heavy ones which need a
+      per-source adapter)
+- [x] User-curated sources — add (RSS or HTML), edit, delete, activate/deactivate
 - [x] Clustering heuristic — 2 passes: token-overlap grouping, then fragment
       merge (same event phrased differently by outlets). Verified against live
       feeds: Nepal-Tibet floods collapse from 5 fragments into 1 multi-source event.
 - [x] Significance scoring (source corroboration + curated topics), language-aware
 - [x] User-curated sources (add/remove any RSS feed) — `npm run seed` pre-loads starters
-- [x] Multi-language significance topics (en/es defaults) + per-user topic editor
+- [x] Multi-language significance topics (en/es defaults) + per-user topic
+      editor (add, rename, delete)
 - [x] NextAuth email magic-link auth (native adapter, no passwords)
 - [x] API routes: `sources`, `timeline`, `topics`
 - [x] Timeline page (chronological) + Sources page + topics editor

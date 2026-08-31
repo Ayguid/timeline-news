@@ -26,7 +26,7 @@ export async function POST(req: Request) {
   const session = await currentUser();
   if (!session?.id) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
 
-  let body: { name?: string; feedUrl?: string; region?: string };
+  let body: { name?: string; feedUrl?: string; region?: string; adapterType?: string };
   try {
     body = await req.json();
   } catch {
@@ -38,6 +38,8 @@ export async function POST(req: Request) {
   if (!name || !feedUrl) {
     return NextResponse.json({ error: 'name and feedUrl required' }, { status: 400 });
   }
+  // adapter: rss (default) or html
+  const adapterType = body.adapterType === 'html' ? 'html' : 'rss';
   // sanity: must look like a URL
   try {
     new URL(feedUrl);
@@ -49,10 +51,10 @@ export async function POST(req: Request) {
     const id = newId('src');
     await sql`
       INSERT INTO sources (id, user_id, name, feed_url, adapter_type, lang, region, active)
-      VALUES (${id}, ${session.id}, ${name}, ${feedUrl}, 'rss', 'en',
+      VALUES (${id}, ${session.id}, ${name}, ${feedUrl}, ${adapterType}, 'en',
               ${body.region ?? null}, true)
     `;
-    return NextResponse.json({ id, name, feedUrl }, { status: 201 });
+    return NextResponse.json({ id, name, feedUrl, adapterType }, { status: 201 });
   } catch (e) {
     // unique (user_id, feed_url) violation
     const msg = (e as { message?: string }).message ?? '';

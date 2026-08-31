@@ -81,3 +81,35 @@ export async function DELETE(req: Request) {
   `;
   return NextResponse.json({ ok: true });
 }
+
+// PATCH — rename one of the user's own topics (delete + re-add in one step).
+export async function PATCH(req: Request) {
+  const session = await currentUser();
+  if (!session?.id) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+
+  let body: { lang?: string; oldToken?: string; newToken?: string };
+  try {
+    body = await req.json();
+  } catch {
+    return NextResponse.json({ error: 'invalid json' }, { status: 400 });
+  }
+
+  const lang = body.lang?.trim().toLowerCase() || 'en';
+  const oldToken = body.oldToken?.trim().toLowerCase();
+  const newToken = body.newToken?.trim().toLowerCase();
+  if (!oldToken || !newToken) return NextResponse.json({ error: 'oldToken and newToken required' }, { status: 400 });
+  if (!/^[a-z]{2,}$/.test(newToken)) {
+    return NextResponse.json({ error: 'token must be 2+ letters' }, { status: 400 });
+  }
+
+  const updated = await sql`
+    UPDATE user_topic_tokens
+    SET token = ${newToken}
+    WHERE user_id = ${session.id} AND lang = ${lang} AND token = ${oldToken}
+    RETURNING token
+  `;
+  if (updated.length === 0) {
+    return NextResponse.json({ error: 'token not found' }, { status: 404 });
+  }
+  return NextResponse.json({ ok: true, token: newToken });
+}
