@@ -30,10 +30,14 @@ Implemented so far:
 - [x] User-curated sources (add/remove any RSS feed) — `npm run seed` pre-loads starters
 - [x] Multi-language significance topics (en/es defaults) + per-user topic
       editor (add, rename, delete)
-- [x] NextAuth email magic-link auth (native adapter, no passwords)
-- [x] API routes: `sources`, `timeline`, `topics`
+- [x] NextAuth auth: Google OAuth (when `AUTH_GOOGLE_ID/SECRET` set) or email
+      magic link (when `EMAIL_SERVER` set); dev-only demo login in development
+- [x] API routes: `sources`, `sources/[id]`, `timeline`, `topics`
 - [x] Timeline page (chronological) + Sources page + topics editor
 - [x] GitHub Actions cron ingestion (`ingest.yml`)
+- [x] Scale-safe pipeline: parallel feed fetch (concurrency-capped) + batched
+      inserts (2N round-trips → 1 per source) + bulk-preloaded scoring. Measured
+      ~10× faster against live Neon (108s → ~10s).
 - [x] End-to-end verified against a live Neon DB: 130+ articles from 5 feeds
       (4 EN + 1 ES), clustered into auto-approved + proposed events.
 
@@ -77,6 +81,22 @@ npm run dev                 # http://localhost:3000
 ```
 
 One-off run without writing: `npm run pipeline:dry`.
+
+### Authentication — true login
+
+Auth providers mount automatically when configured. For a real (production)
+login you must add credentials — the code is ready, nothing to write:
+
+- **Google OAuth (recommended, no SMTP needed):**
+  1. https://console.cloud.google.com/apis/credentials → Create OAuth client ID
+     (Web application). Add redirect URI:
+     `https://<your-domain>/api/auth/callback/google` (or `http://localhost:3000/...` locally).
+  2. Set `AUTH_GOOGLE_ID`, `AUTH_GOOGLE_SECRET`, and `NEXT_PUBLIC_AUTH_GOOGLE_ID`
+     in `.env` / Vercel. The "Continue with Google" button appears on `/auth/signin`.
+- **Email magic link:** set `EMAIL_SERVER` (SMTP or resend/brevo URL) and
+  `EMAIL_FROM`.
+- NextAuth auto-configures a providers page at `/auth/signin`. `dev-auth` demo
+  login is NODE_ENV=development-only and never runs in production.
 
 ### GitHub Actions ingestion
 
