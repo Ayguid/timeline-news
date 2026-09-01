@@ -1,13 +1,17 @@
 // ============================================================================
 // GET /api/timeline — chronologically-ordered events for the user.
-//   ?days=14  — look back window (default 14)
-//   ?status=approved|proposed|all  — default approved
+//   ?days=14    — look back window (default 14)
+//   ?status=all — show approved (default). Supported: approved|proposed|all
 //
 // Two-tier view (migration 0005):
 //   - GLOBAL events (user_id NULL): every approved global event whose covering
 //     sources the user has ENABLED in user_sources. Shared record, filtered by
-//     the user's source preferences. Global events are auto-approved once.
-//   - PERSONAL events (user_id = me): built from the user's own sources.
+//     the user's source preferences.
+//   - PERSONAL events (user_id = me): built from the user's own sources, scored
+//     with the user's topics.
+// Both `approved` and `proposed` events have passed the significance bar; the
+// API defaults to `approved` for a clean view, but `proposed` are legitimate
+// single-source / pending-confirm world news the user will often want.
 // Ordered by event_date ASC = the product's invariant (soul.md #3).
 // ============================================================================
 import { NextResponse } from 'next/server';

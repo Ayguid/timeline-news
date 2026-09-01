@@ -108,12 +108,13 @@ export async function POST(req: Request) {
 
   try {
     const id = newSourceId();
+    const lang = body.lang === 'es' || body.lang === 'en' ? body.lang : 'en';
     await sql`
       INSERT INTO sources (id, name, feed_url, adapter_type, lang, region, active, owner_id)
-      VALUES (${id}, ${v.name}, ${v.feedUrl}, ${v.adapterType}, 'en',
+      VALUES (${id}, ${v.name}, ${v.feedUrl}, ${v.adapterType}, ${lang},
               ${body.region ?? null}, true, ${ownerId})
     `;
-    return NextResponse.json({ id, name: v.name, feedUrl: v.feedUrl, adapterType: v.adapterType, ownerId }, { status: 201 });
+    return NextResponse.json({ id, name: v.name, feedUrl: v.feedUrl, adapterType: v.adapterType, lang, ownerId }, { status: 201 });
   } catch (e) {
     const msg = (e as { message?: string }).message ?? '';
     if (msg.includes('duplicate') || msg.includes('unique')) {

@@ -31,6 +31,7 @@ export default function SourcesPage() {
   const [feedUrl, setFeedUrl] = useState('');
   const [region, setRegion] = useState('');
   const [adapterType, setAdapterType] = useState<'rss' | 'html'>('rss');
+  const [lang, setLang] = useState<'en' | 'es'>('en');
   const [adminMode, setAdminMode] = useState(false);
   // personal-source inline edit
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -68,7 +69,7 @@ export default function SourcesPage() {
       headers: { 'Content-Type': 'application/json' },
       // Admins can choose global vs personal via the checkbox; everyone else
       // always adds a personal source (global omitted -> falsy).
-      body: JSON.stringify({ name, feedUrl, region: region || undefined, adapterType, global: role === 'admin' ? adminMode : false }),
+      body: JSON.stringify({ name, feedUrl, region: region || undefined, adapterType, global: role === 'admin' ? adminMode : false, lang }),
     });
     const d = await res.json().catch(() => ({}));
     if (res.ok) {
@@ -151,6 +152,15 @@ export default function SourcesPage() {
         <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Name (e.g. BBC World)" required />
         <input value={feedUrl} onChange={(e) => setFeedUrl(e.target.value)} placeholder={adapterType === 'rss' ? 'Feed URL' : 'Page URL'} required />
         <input value={region} onChange={(e) => setRegion(e.target.value)} placeholder="Region (optional)" />
+        <div style={{ display: 'flex', gap: 12 }}>
+          <label style={{ fontSize: '0.9rem' }}>
+            <input type="radio" name="slang" checked={lang === 'en'} onChange={() => setLang('en')} /> English
+          </label>
+          <label style={{ fontSize: '0.9rem' }}>
+            <input type="radio" name="slang" checked={lang === 'es'} onChange={() => setLang('es')} /> Español
+          </label>
+          <span style={{ fontSize: '0.8rem', color: 'var(--muted)', alignSelf: 'center' }}>— topic language for this source</span>
+        </div>
         <button type="submit">{adminMode && role === 'admin' ? 'Add global source' : `Add my source${role !== 'admin' ? ` (${personal.length}/${personalCap})` : ''}`}</button>
       </form>
 

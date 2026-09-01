@@ -109,18 +109,16 @@ async function ingestAll(): Promise<void> {
 // ---------------------------------------------------------------------------
 // clusterAndScore — two-tier event building.
 //   GLOBAL scope  : articles from global sources (owner_id NULL) cluster into
-//                   SHARED events (user_id NULL). Scored with the built-in
-//                   default topics only (no per-user bias) — one deterministic,
-//                   auto-approved record shared by everyone. Subject to the
-//                   significance bar (cross-source corroboration).
+//                   SHARED events (user_id NULL). Scored with the default
+//                   topics for the event's language.
 //   PERSONAL scope: for each user, their own sources' articles cluster into
-//                   PERSONAL events (user_id = owner), scored with that user's
-//                   topic preferences. AUTO-SURFACED: the user explicitly
-//                   added these sources, so every clustered event is approved
-//                   regardless of corroboration — a single added source whose
-//                   articles don't match global topics should still show up.
+//                   PERSONAL events (user_id = owner), scored with THAT USER'S
+//                   effective topics (defaults ∪ their tokens) — so a story
+//                   surfaces only when it's significant to that user, per
+//                   soul.md principle #5. Both scopes pass the same bar; the
+//                   personalization is WHOSE topics are used to score.
 // ---------------------------------------------------------------------------
-type Scope = { userId: string | null; label: string; autoSurface: boolean };
+type Scope = { userId: string | null; label: string };
 
 /** Compute effective scoring tokens for a candidate in a given scope. */
 function tokensForScope(
@@ -177,16 +175,14 @@ async function runScopedCluster(
       tokens: tokensForScope(scope, cand.lang, preload),
     });
 
-    // Personal (autoSurface) events bypass the significance bar — the user
-    // subscribed to these sources, so surface them regardless of corroboration.
-    // Global events keep the bar (cross-source corroboration is what makes a
-    // shared event "significant", soul.md #2/#5).
-    if (!scope.autoSurface && scored.significanceScore < THRESHOLDS.propose) {
+    // The significance bar applies to both scopes (soul.md #5). Personal
+    // personalization comes from WHOSE topics scored it, not a weaker bar.
+    if (scored.significanceScore < THRESHOLDS.propose) {
       console.log(`  - below bar (${scored.significanceScore}): ${cand.title.slice(0, 60)}`);
       continue;
     }
 
-    const autoApproved = scope.autoSurface || scored.significanceScore >= THRESHOLDS.autoApprove;
+    const autoApproved = scored.significanceScore >= THRESHOLDS.autoApprove;
     const status = autoApproved ? 'approved' : 'proposed';
     const eventId = newId('evt');
 
@@ -241,12 +237,13 @@ async function clusterAndScore(): Promise<void> {
   for (const r of disabledRows) disabledSet.add(`${r.uid}:${r.lang}:${r.token}`);
   const preload = { defaultByLang, userByUidLang, disabledSet };
 
-  // 1) Shared/global events (admin sources) — subject to the significance bar.
-  await runScopedCluster({ userId: null, label: 'global', autoSurface: false }, preload);
+  // 1) Shared/global events (admin sources) — scored with default topics.
+  await runScopedCluster({ userId: null, label: 'global' }, preload);
 
-  // 2) Personal events per user who owns active sources — auto-surface.
+  // 2) Personal events per user who owns active sources — scored with THAT
+  // user's topics, so only stories significant to them surface.
   for (const owner of personalOwners) {
-    await runScopedCluster({ userId: owner.uid, label: `personal:${owner.uid}`, autoSurface: true }, preload);
+    await runScopedCluster({ userId: owner.uid, label: `personal:${owner.uid}` }, preload);
   }
 }
 

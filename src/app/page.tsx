@@ -61,7 +61,7 @@ export default async function TimelinePage() {
     LEFT JOIN event_articles ea ON ea.event_id = e.id
     LEFT JOIN raw_articles a ON a.id = ea.article_id
     LEFT JOIN sources s ON s.id = a.source_id
-    WHERE e.status = 'approved'
+    WHERE e.status IN ('approved', 'proposed')
     GROUP BY e.id
     ORDER BY e.event_date ASC
   `;
