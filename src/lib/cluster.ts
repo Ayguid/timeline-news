@@ -48,6 +48,35 @@ function distinctive(title: string): Set<string> {
   return out;
 }
 
+/**
+ * Rare-token filter for pass-2 fragment merging.
+ *
+ * A plain word-length ≥6 is NOT enough to call two headlines the same story:
+ * "police" / "officer" / "sydney" recur across many unrelated articles, so
+ * sharing them falsely merges separate events (observed live: a South Korean
+ * police story was fused with three unrelated Sydney stories). Instead a token
+ * only counts as cross-article signal if it's RARE in the whole batch — TF-IDF
+ * style: a proper noun like "herzog" (df≈1) is signal, but "police" (df large)
+ * is not.
+ *
+ * `dfFloor` = fraction of the batch below which a token is considered rare.
+ */
+function rareTokens(
+  articleIds: string[],
+  byId: Map<string, RawArticleInput>,
+  dfFloor = 0.4,
+): Array<{ id: string; tokens: Set<string> }> {
+  const n = articleIds.length;
+  const df = new Map<string, number>(); // doc frequency across titles
+  for (const id of articleIds) {
+    const seen = distinctive(byId.get(id)!.title);
+    for (const t of seen) df.set(t, (df.get(t) ?? 0) + 1);
+  }
+  const sparse = new Set<string>();
+  for (const [t, c] of df) if (c / n <= dfFloor) sparse.add(t);
+  return articleIds.map((id) => ({ id, tokens: new Set([...distinctive(byId.get(id)!.title)].filter((t) => sparse.has(t))) }));
+}
+
 function jaccard(a: Set<string>, b: Set<string>): number {
   if (a.size === 0 || b.size === 0) return 0;
   let inter = 0;
@@ -132,11 +161,14 @@ export function clusterArticles(articles: RawArticleInput[], opts?: {
 
   // Pass 2 — merge fragments: outlets phrase one story very differently, so
   // pass-1 Jaccard misses them (observed: Nepal-Tibet floods, 1 event split
-  // across 5 headlines). Merge two groups when their members share enough
-  // DISTINCTIVE tokens within a wider window.
+  // across 5 headlines). Merge two groups when they share enough RARE tokens
+  // (df-weighted) within a wider window. Using rare tokens (proper nouns,
+  // specific terms) prevents unrelated stories that merely both mention
+  // "police"/"sydney" from being fused into one event.
   const groupTokens = groups.map((g) => {
+    const t = rareTokens(g, byId);
     const set = new Set<string>();
-    for (const id of g) for (const t of distinctive(byId.get(id)!.title)) set.add(t);
+    for (const x of t) for (const tok of x.tokens) set.add(tok);
     return set;
   });
 

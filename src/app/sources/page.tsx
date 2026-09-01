@@ -165,6 +165,21 @@ export default function SourcesPage() {
             ) : (
               <ul style={{ listStyle: 'none', padding: 0 }}>
                 {global.map((g) => (
+                  editingId === g.id && role === 'admin' ? (
+                    <li key={g.id} style={{ padding: '10px 0', borderBottom: '1px solid var(--line)' }}>
+                      <div style={{ display: 'grid', gap: 6 }}>
+                        <div style={{ display: 'flex', gap: 8 }}>
+                          <input value={editForm.name} onChange={(e) => setEditForm({ ...editForm, name: e.target.value })} placeholder="Name" style={{ flex: 1 }} />
+                          <input value={editForm.region} onChange={(e) => setEditForm({ ...editForm, region: e.target.value })} placeholder="Region" style={{ width: 140 }} />
+                        </div>
+                        <input value={editForm.feedUrl} onChange={(e) => setEditForm({ ...editForm, feedUrl: e.target.value })} placeholder="Feed URL" />
+                        <div style={{ display: 'flex', gap: 8 }}>
+                          <button onClick={() => saveEdit(g.id)}>Save</button>
+                          <button onClick={() => setEditingId(null)}>Cancel</button>
+                        </div>
+                      </div>
+                    </li>
+                  ) : (
                   <li key={g.id} style={{ padding: '10px 0', borderBottom: '1px solid var(--line)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
                     <div>
                       <strong>{g.name}</strong>{' '}
@@ -189,6 +204,7 @@ export default function SourcesPage() {
                       </Button>
                     </span>
                   </li>
+                  )
                 ))}
               </ul>
             )}
