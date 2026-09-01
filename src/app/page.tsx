@@ -35,7 +35,7 @@ export default async function TimelinePage() {
   const rows = await sql`
     SELECT e.id, e.title, e.summary, e.event_date AS "eventDate",
            e.significance_score AS "significanceScore",
-           e.source_count AS "sourceCount", e.status,
+           e.distinct_sources AS "sourceCount", e.status,
            COALESCE(
              json_agg(json_build_object(
                'articleUrl', a.url,

@@ -30,8 +30,7 @@ export async function GET(req: Request) {
 
   return NextResponse.json({
     lang,
-    defaultsEnabled: state.defaultsEnabled,
-    defaultTokens: state.defaultTokens,
+    defaults: state.defaults, // [{token, enabled}]
     userTokens: state.userTokens,
   });
 }

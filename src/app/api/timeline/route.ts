@@ -25,7 +25,7 @@ export async function GET(req: Request) {
   const events = await sql`
     SELECT e.id, e.title, e.summary, e.event_date AS "eventDate",
            e.significance_score AS "significanceScore",
-           e.source_count AS "sourceCount", e.topic_match_score AS "topicMatchScore",
+           e.distinct_sources AS "sourceCount", e.topic_match_score AS "topicMatchScore",
            e.status, e.approval_source AS "approvalSource",
            COALESCE(
              json_agg(json_build_object(

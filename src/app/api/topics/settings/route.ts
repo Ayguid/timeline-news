@@ -1,47 +1,62 @@
 // ============================================================================
-// /api/topics/settings — per-language control over whether built-in default
-// significance topics apply.
-//   GET ?lang=en       -> { lang, defaultsEnabled }
-//   PUT {lang, defaultsEnabled} -> set it (upsert into user_topic_settings)
-// When defaultsEnabled is false, scoring for that language uses ONLY the user's
-// own tokens. This is the "user may not want the default topics" toggle.
+// /api/topics/settings — per-topic control over built-in default significance
+// topics.
+//   GET  ?lang=en              -> { lang, defaults: [{token, enabled}, ...] }
+//   PUT  {lang, token, enabled}-> toggle ONE default on/off
+//        - enabled=false -> add a row to user_disabled_default_topics
+//        - enabled=true  -> remove that row (restore default)
+// This is the "activate each default topic individually" feature.
 // ============================================================================
 import { NextResponse } from 'next/server';
 import { sql } from '@/lib/db';
 import { currentUser } from '@/lib/session';
+import { topicState } from '@/lib/topics';
 
 export async function GET(req: Request) {
   const session = await currentUser();
   if (!session?.id) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
 
   const lang = (new URL(req.url).searchParams.get('lang') ?? 'en').toLowerCase();
-  const rows = await sql`
-    SELECT defaults_enabled AS de FROM user_topic_settings
-    WHERE user_id = ${session.id} AND lang = ${lang}
-  `;
-  // default true when no row exists
-  return NextResponse.json({ lang, defaultsEnabled: rows.length === 0 ? true : rows[0].de === true });
+  const state = await topicState(session.id, lang);
+
+  return NextResponse.json({
+    lang,
+    defaults: state.defaults, // [{token, enabled}]
+    userTokens: state.userTokens,
+  });
 }
 
 export async function PUT(req: Request) {
   const session = await currentUser();
   if (!session?.id) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
 
-  let body: { lang?: string; defaultsEnabled?: boolean };
+  let body: { lang?: string; token?: string; enabled?: boolean };
   try {
     body = await req.json();
   } catch {
     return NextResponse.json({ error: 'invalid json' }, { status: 400 });
   }
   const lang = body.lang?.trim().toLowerCase() || 'en';
-  if (typeof body.defaultsEnabled !== 'boolean') {
-    return NextResponse.json({ error: 'defaultsEnabled (boolean) required' }, { status: 400 });
+  const token = body.token?.trim().toLowerCase();
+  if (!token) return NextResponse.json({ error: 'token required' }, { status: 400 });
+  if (typeof body.enabled !== 'boolean') {
+    return NextResponse.json({ error: 'enabled (boolean) required' }, { status: 400 });
   }
 
-  await sql`
-    INSERT INTO user_topic_settings (user_id, lang, defaults_enabled)
-    VALUES (${session.id}, ${lang}, ${body.defaultsEnabled})
-    ON CONFLICT (user_id, lang) DO UPDATE SET defaults_enabled = ${body.defaultsEnabled}
-  `;
-  return NextResponse.json({ ok: true, lang, defaultsEnabled: body.defaultsEnabled });
+  if (body.enabled) {
+    // restore default -> remove the disable row
+    await sql`
+      DELETE FROM user_disabled_default_topics
+      WHERE user_id = ${session.id} AND lang = ${lang} AND token = ${token}
+    `;
+  } else {
+    // disable a default -> add the row
+    await sql`
+      INSERT INTO user_disabled_default_topics (user_id, lang, token)
+      VALUES (${session.id}, ${lang}, ${token})
+      ON CONFLICT (user_id, lang, token) DO NOTHING
+    `;
+  }
+
+  return NextResponse.json({ ok: true, lang, token, enabled: body.enabled });
 }

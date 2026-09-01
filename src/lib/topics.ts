@@ -1,21 +1,25 @@
 // ============================================================================
 // topics.ts — fetch a user's effective significance tokens, per language.
-//   effective(lang) = significant_topics defaults(lang)   [if defaults_enabled]
-//                   UNION user_topic_tokens(lang)
-// defaults_enabled lives in user_topic_settings (migration 0003), so a user can
-// switch off the built-in topics for a language and rely on their own (or none).
+//   effective(lang) = defaults(lang) NOT disabled by the user
+//                   ∪ user_topic_tokens(lang)
+// Per-topic control (migration 0004): user_disabled_default_topics stores the
+// built-in tokens the user switched OFF for a language. Absence = keep default.
 // ============================================================================
 import { sql } from './db';
 
+export interface DefaultTopic {
+  token: string;
+  enabled: boolean; // true unless the user disabled it
+}
+
 export interface LanguageTopicState {
   lang: string;
-  defaultsEnabled: boolean;
-  /** combined default + user tokens (respects defaultsEnabled) */
-  tokens: string[];
+  /** built-in tokens, each with its per-topic enabled flag (for the UI) */
+  defaults: DefaultTopic[];
   /** just the user-added ones (so the UI can show/edit them) */
   userTokens: string[];
-  /** built-in tokens (for reference in the UI) */
-  defaultTokens: string[];
+  /** effective scoring tokens (respects per-topic disable) */
+  tokens: string[];
 }
 
 /** All languages a user has active sources in. */
@@ -28,22 +32,29 @@ export async function userLanguages(userId: string): Promise<string[]> {
 
 /** Effective significance topic state for one language for a user. */
 export async function topicState(userId: string, lang: string): Promise<LanguageTopicState> {
-  const [defaults, overrides, setting] = await Promise.all([
+  const [defaults, overrides, disabled] = await Promise.all([
     sql`SELECT token FROM significant_topics WHERE lang = ${lang}`,
     sql`SELECT token FROM user_topic_tokens WHERE user_id = ${userId} AND lang = ${lang}`,
-    sql`SELECT defaults_enabled AS de FROM user_topic_settings WHERE user_id = ${userId} AND lang = ${lang}`,
+    sql`SELECT token FROM user_disabled_default_topics WHERE user_id = ${userId} AND lang = ${lang}`,
   ]);
 
-  const defaultTokens = defaults.map((r) => r.token);
   const userTokens = overrides.map((r) => r.token);
-  // defaults_enabled defaults to true when no setting row exists.
-  const defaultsEnabled = setting.length === 0 ? true : setting[0].de === true;
+  const disabledSet = new Set(disabled.map((r) => r.token));
 
-  const combined = defaultsEnabled
-    ? [...new Set([...defaultTokens, ...userTokens])]
-    : [...new Set(userTokens)];
+  const defaultsList: DefaultTopic[] = defaults.map((r) => ({
+    token: r.token,
+    enabled: !disabledSet.has(r.token),
+  }));
 
-  return { lang, defaultsEnabled, tokens: combined, userTokens, defaultTokens };
+  // effective = enabled defaults ∪ user tokens
+  const tokens = [
+    ...new Set([
+      ...defaultsList.filter((d) => d.enabled).map((d) => d.token),
+      ...userTokens,
+    ]),
+  ];
+
+  return { lang, defaults: defaultsList, userTokens, tokens };
 }
 
 /** Effective tokens across ALL the user's languages (union). */

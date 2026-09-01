@@ -136,12 +136,12 @@ async function clusterAndScore(): Promise<void> {
 
   // --- Bulk preload (avoid a per-candidate round-trip to the DB) -----------
   // source -> owner, all significance tokens (defaults + user overrides), and
-  // the per-(user,lang) defaults toggle.
-  const [ownerRows, defaultTok, userTok, settings] = await Promise.all([
+  // the per-(user,lang,topc) disabled list.
+  const [ownerRows, defaultTok, userTok, disabledRows] = await Promise.all([
     sql`SELECT id AS sid, user_id AS uid FROM sources`,
     sql`SELECT lang, token FROM significant_topics`,
     sql`SELECT user_id AS uid, lang, token FROM user_topic_tokens`,
-    sql`SELECT user_id AS uid, lang, defaults_enabled AS de FROM user_topic_settings`,
+    sql`SELECT user_id AS uid, lang, token FROM user_disabled_default_topics`,
   ]);
   const sourceOwner = new Map(ownerRows.map((r) => [r.sid, r.uid]));
   const defaultByLang = new Map<string, string[]>();
@@ -157,11 +157,9 @@ async function clusterAndScore(): Promise<void> {
     arr.push(r.token);
     byLang.set(r.lang, arr);
   }
-  // defaults enabled unless a setting row explicitly disables it.
-  const defaultsDisabled = new Set<string>();
-  for (const r of settings) {
-    if (r.de === false) defaultsDisabled.add(`${r.uid}:${r.lang}`);
-  }
+  // per-topic: a default is skipped only if the user disabled THAT token.
+  const disabledSet = new Set<string>();
+  for (const r of disabledRows) disabledSet.add(`${r.uid}:${r.lang}:${r.token}`);
 
   // Which article belongs to which source id (to map candidate member -> owner)
   const artSource = new Map(articles.map((a) => [a.id, a.sourceId]));
@@ -173,9 +171,11 @@ async function clusterAndScore(): Promise<void> {
     const srcId = artSource.get(cand.memberIds[0]);
     const userId = sourceOwner.get(srcId ?? '') ?? 'user_demo';
 
-    // effective tokens = defaults(lang) UNION user(lang), unless the user has
-    // switched the defaults off for this language — then user tokens only.
-    const defaults = defaultsDisabled.has(`${userId}:${cand.lang}`) ? [] : (defaultByLang.get(cand.lang) ?? []);
+    // effective tokens = (enabled defaults) UNION user tokens — per-topic.
+    const allDefaults = defaultByLang.get(cand.lang) ?? [];
+    const defaults = allDefaults.filter(
+      (t) => !disabledSet.has(`${userId}:${cand.lang}:${t}`),
+    );
     const userTokens = userByUidLang.get(userId)?.get(cand.lang) ?? [];
     const scored = scoreEvent({
       title: cand.title,
@@ -197,11 +197,11 @@ async function clusterAndScore(): Promise<void> {
     await sql`
       INSERT INTO events
         (id, user_id, title, summary, event_date, date_inferred, source_count,
-         topic_match_score, significance_score, status, approval_source)
+         distinct_sources, topic_match_score, significance_score, status, approval_source)
       VALUES
         (${eventId}, ${userId}, ${cand.title}, ${cand.summary},
-         ${cand.eventDate}, true, ${scored.sourceCount}, ${scored.topicMatchScore},
-         ${scored.significanceScore}, ${status}, 'auto')
+         ${cand.eventDate}, true, ${scored.sourceCount}, ${cand.sourceIds.length},
+         ${scored.topicMatchScore}, ${scored.significanceScore}, ${status}, 'auto')
       ON CONFLICT DO NOTHING
     `;
 
