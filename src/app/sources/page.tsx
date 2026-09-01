@@ -21,7 +21,7 @@ export default function SourcesPage() {
   const [global, setGlobal] = useState<Source[]>([]);
   const [personal, setPersonal] = useState<Source[]>([]);
   const [role, setRole] = useState<'admin' | 'user'>('user');
-  const [personalCap, setPersonalCap] = useState(5);
+  const [personalCap, setPersonalCap] = useState(3);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);

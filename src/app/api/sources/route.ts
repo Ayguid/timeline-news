@@ -17,7 +17,7 @@ import { sql } from '@/lib/db';
 import { currentUser } from '@/lib/session';
 
 /** Max PERSONAL sources a single user may add (keeps ingestion bounded). */
-export const PERSONAL_SOURCE_CAP = 5;
+export const PERSONAL_SOURCE_CAP = 3;
 
 function newId(prefix: string): string {
   return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;

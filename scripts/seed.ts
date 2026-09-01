@@ -53,10 +53,10 @@ async function main() {
       `;
     }
 
-    // demo user: admin (curates global sources), stable id
+    // demo user (normal role — admin is decided by ADMIN_EMAILS env, not seed)
     await sql`
-      INSERT INTO users (id, name, email, role)
-      VALUES ('user_demo', 'Demo User', ${DEMO_EMAIL}, 'admin')
+      INSERT INTO users (id, name, email)
+      VALUES ('user_demo', 'Demo User', ${DEMO_EMAIL})
       ON CONFLICT (email) DO NOTHING
     `;
 
@@ -78,7 +78,7 @@ async function main() {
 
     const n = await sql`SELECT count(*)::int AS n FROM sources WHERE owner_id IS NULL`;
     const enabled = await sql`SELECT count(*)::int AS n FROM user_sources WHERE user_id = 'user_demo' AND enabled = true`;
-    console.log(`[seed] demo admin + ${n[0].n} global source(s); ${enabled[0].n} enabled for demo.`);
+    console.log(`[seed] demo user + ${n[0].n} global source(s); ${enabled[0].n} enabled for demo. (Admin via ADMIN_EMAILS env, not seed.)`);
   } finally {
     await sql.end();
   }

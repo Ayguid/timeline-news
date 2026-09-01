@@ -39,15 +39,9 @@ export async function PATCH(req: Request, ctx: Ctx) {
   const src = rows[0];
   const isGlobal = src.ownerId === null;
 
-  // Access: admin may touch global; owner (only) may touch their personal.
-  if (isGlobal && session.role !== 'admin') {
-    return NextResponse.json({ error: 'only admins can modify global sources' }, { status: 403 });
-  }
-  if (!isGlobal && src.ownerId !== session.id) {
-    return NextResponse.json({ error: 'not your source' }, { status: 403 });
-  }
-
-  // `enabled` on a GLOBAL source = the user's own selection (user_sources).
+  // `enabled` on a GLOBAL source = the USER'S OWN site selection (user_sources).
+  // This is a personal filter, so ANY user may toggle it — it does NOT modify
+  // the shared source. Handle it BEFORE the admin gate below.
   if (isGlobal && typeof body.enabled === 'boolean') {
     await sql`
       INSERT INTO user_sources (user_id, source_id, enabled)
@@ -55,6 +49,14 @@ export async function PATCH(req: Request, ctx: Ctx) {
       ON CONFLICT (user_id, source_id) DO UPDATE SET enabled = ${body.enabled}
     `;
     return NextResponse.json({ ok: true, enabled: body.enabled });
+  }
+
+  // Access: admin may MODIFY global; owner (only) may modify their personal.
+  if (isGlobal && session.role !== 'admin') {
+    return NextResponse.json({ error: 'only admins can modify global sources' }, { status: 403 });
+  }
+  if (!isGlobal && src.ownerId !== session.id) {
+    return NextResponse.json({ error: 'not your source' }, { status: 403 });
   }
 
   const updated = await sql`
