@@ -93,5 +93,11 @@ export async function DELETE(_req: Request, ctx: Ctx) {
   await sql`DELETE FROM sources WHERE id = ${id}`;
   // clean up anyone's selection of this source
   await sql`DELETE FROM user_sources WHERE source_id = ${id}`;
+  // Deleting a source cascades to its raw_articles + event_article links (FK),
+  // but events themselves survive. Remove any event left with zero articles.
+  await sql`
+    DELETE FROM events e
+    WHERE NOT EXISTS (SELECT 1 FROM event_articles ea WHERE ea.event_id = e.id)
+  `;
   return NextResponse.json({ ok: true });
 }
