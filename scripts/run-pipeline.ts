@@ -164,11 +164,9 @@ async function runScopedCluster(
   })));
   console.log(`[${scope.label}] ${articles.length} articles -> ${candidates.length} candidate event(s)`);
 
-  const artSource = new Map(articles.map((a) => [a.id, a.sourceId]));
   let created = 0;
 
   for (const cand of candidates) {
-    const srcId = artSource.get(cand.memberIds[0]) ?? '';
     const scored = scoreEvent({
       title: cand.title,
       summary: cand.summary,
@@ -212,9 +210,8 @@ async function runScopedCluster(
 }
 
 async function clusterAndScore(): Promise<void> {
-  // Bulk preload source->owner, all significance tokens, and per-user disables.
-  const [ownerRows, defaultTok, userTok, disabledRows, personalOwners] = await Promise.all([
-    sql`SELECT id AS sid, owner_id AS uid FROM sources`,
+  // Bulk preload significance tokens, per-user disables, and personal owners.
+  const [defaultTok, userTok, disabledRows, personalOwners] = await Promise.all([
     sql`SELECT lang, token FROM significant_topics`,
     sql`SELECT user_id AS uid, lang, token FROM user_topic_tokens`,
     sql`SELECT user_id AS uid, lang, token FROM user_disabled_default_topics`,
