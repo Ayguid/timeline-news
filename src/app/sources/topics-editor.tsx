@@ -21,7 +21,7 @@ export default function TopicsEditor() {
   // Bump to refetch after any change.
   const [revision, setRevision] = useState(0);
   // pending actions — disable + spinner to prevent double-submit
-  const { pendingId, run } = usePending();
+  const { run, isPending } = usePending();
 
   useEffect(() => {
     let alive = true;
@@ -143,8 +143,7 @@ export default function TopicsEditor() {
               key={t.token}
               variant="pill"
               size="sm"
-              loading={pendingId === t.token}
-              disabled={pendingId !== null}
+              loading={isPending(t.token)}
               onClick={() => run(t.token, () => toggleDefault(t))}
               title={t.enabled ? 'Enabled — click to turn off' : 'Disabled — click to enable'}
               style={{ padding: '4px 10px', cursor: 'pointer', border: t.enabled ? '1px solid var(--approve)' : '1px dashed var(--line)', color: t.enabled ? 'var(--text)' : 'var(--muted)', borderRadius: 999, background: t.enabled ? 'rgba(76,175,125,.12)' : 'transparent' }}
@@ -193,8 +192,8 @@ export default function TopicsEditor() {
           title="lowercase letters only"
           required
         />
-        <Button type="submit" loading={pendingId === 'add-topic'} disabled={!newToken.trim()}>
-        {pendingId === 'add-topic' ? 'Adding…' : 'Add to my topics'}
+        <Button type="submit" loading={isPending('add-topic')} disabled={!newToken.trim()}>
+        {isPending('add-topic') ? 'Adding…' : 'Add to my topics'}
       </Button>
       </form>
       {error && <p style={{ color: '#e06c6c' }}>{error}</p>}

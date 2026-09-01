@@ -85,25 +85,28 @@ export function Spinner({ size = 11 }: { size?: number }) {
 }
 
 /**
- * Tracks which async task is in flight so callers can coordinate buttons
- * (e.g. only one toggle at a time across a list). Used with plain <button>s
- * that need manual control, or to pass `loading` to <Button>.
+ * Tracks which async tasks are in flight. Each task id is tracked
+ * individually — so toggling one source disables/spins ONLY that button,
+ * while other buttons stay usable. Guards against *re-entry of the same id*
+ * (double-click the same button does nothing), but does NOT globally block
+ * unrelated buttons.
  */
 export function usePending<T extends string = string>() {
-  const [pendingId, setPendingId] = useState<T | null>(null);
-  const busy = useRef(false);
+  const [pending, setPending] = useState<ReadonlySet<T>>(new Set());
+  const active = useRef<Set<T>>(new Set());
 
   async function run(id: T, task: () => Promise<unknown>): Promise<void> {
-    if (busy.current) return;
-    busy.current = true;
-    setPendingId(id);
+    if (active.current.has(id)) return; // this id already running — swallow
+    active.current.add(id);
+    setPending(new Set(active.current));
     try {
       await task();
     } finally {
-      busy.current = false;
-      setPendingId(null);
+      active.current.delete(id);
+      setPending(new Set(active.current));
     }
   }
 
-  return { pendingId, run, isPending: (id: T) => pendingId === id };
+  const isPending = (id: T) => pending.has(id);
+  return { pending, run, isPending, isAnythingPending: pending.size > 0 };
 }

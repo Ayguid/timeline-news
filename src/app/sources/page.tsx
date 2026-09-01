@@ -37,7 +37,7 @@ export default function SourcesPage() {
   const [editForm, setEditForm] = useState({ name: '', feedUrl: '', region: '', active: true });
   const [revision, setRevision] = useState(0);
   // pending actions (toggle/add/edit/delete) to disable buttons against double-clicks
-  const { pendingId, run } = usePending();
+  const { run, isPending } = usePending();
 
   useEffect(() => {
     let alive = true;
@@ -175,14 +175,13 @@ export default function SourcesPage() {
                       {role === 'admin' && (
                         <>
                           <button onClick={() => startEdit(g)}>Edit</button>
-                          <button onClick={() => run(`del:${g.id}`, () => deleteSource(g.id, g.name))} disabled={pendingId !== null} style={{ color: '#e06c6c' }}>Del</button>
+                          <button onClick={() => run(`del:${g.id}`, () => deleteSource(g.id, g.name))} disabled={isPending(`del:${g.id}`)} style={{ color: '#e06c6c' }}>Del</button>
                         </>
                       )}
                       <Button
                         variant="pill"
                         size="sm"
-                        loading={pendingId === g.id}
-                        disabled={pendingId !== null}
+                        loading={isPending(g.id)}
                         onClick={() => run(g.id, () => toggleGlobal(g.id, g.enabled ?? false))}
                         style={{ border: '1px solid' + (g.enabled ? ' var(--approve)' : ' var(--line)'), color: g.enabled ? 'var(--approve)' : 'var(--muted)', borderRadius: 999, padding: '3px 12px', cursor: 'pointer', background: 'none' }}
                       >
