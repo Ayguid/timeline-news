@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import LogoutButton from '@/components/logout-button';
 import TopicsEditor from './topics-editor';
+import { Button, usePending } from '@/components/button';
 
 type Source = {
   id: string;
@@ -35,6 +36,8 @@ export default function SourcesPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState({ name: '', feedUrl: '', region: '', active: true });
   const [revision, setRevision] = useState(0);
+  // pending actions (toggle/add/edit/delete) to disable buttons against double-clicks
+  const { pendingId, run } = usePending();
 
   useEffect(() => {
     let alive = true;
@@ -172,16 +175,19 @@ export default function SourcesPage() {
                       {role === 'admin' && (
                         <>
                           <button onClick={() => startEdit(g)}>Edit</button>
-                          <button onClick={() => deleteSource(g.id, g.name)} style={{ color: '#e06c6c' }}>Del</button>
+                          <button onClick={() => run(`del:${g.id}`, () => deleteSource(g.id, g.name))} disabled={pendingId !== null} style={{ color: '#e06c6c' }}>Del</button>
                         </>
                       )}
-                      <button
-                        className={g.enabled ? 'pill' : 'pill pill-off'}
-                        onClick={() => toggleGlobal(g.id, g.enabled ?? false)}
+                      <Button
+                        variant="pill"
+                        size="sm"
+                        loading={pendingId === g.id}
+                        disabled={pendingId !== null}
+                        onClick={() => run(g.id, () => toggleGlobal(g.id, g.enabled ?? false))}
                         style={{ border: '1px solid' + (g.enabled ? ' var(--approve)' : ' var(--line)'), color: g.enabled ? 'var(--approve)' : 'var(--muted)', borderRadius: 999, padding: '3px 12px', cursor: 'pointer', background: 'none' }}
                       >
                         {g.enabled ? 'On' : 'Off'}
-                      </button>
+                      </Button>
                     </span>
                   </li>
                 ))}

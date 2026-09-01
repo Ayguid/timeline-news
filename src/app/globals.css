@@ -92,3 +92,13 @@ nav.top { display: flex; gap: 16px; align-items: center; font-size: 0.9rem; }
   cursor: pointer; font-size: 0.85rem;
 }
 .btn-ghost:hover { color: var(--text); border-color: var(--accent); }
+
+/* spinner */
+.spinner {
+  border: 2px solid rgba(0,0,0,.15);
+  border-top-color: currentColor;
+  border-radius: 50%;
+  animation: spin .7s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+button:disabled { cursor: not-allowed; opacity: .55; }

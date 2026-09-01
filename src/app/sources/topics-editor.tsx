@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { Button, usePending } from '@/components/button';
 
 const LANGS = ['en', 'es'];
 
@@ -19,6 +20,8 @@ export default function TopicsEditor() {
   const [editValue, setEditValue] = useState('');
   // Bump to refetch after any change.
   const [revision, setRevision] = useState(0);
+  // pending actions — disable + spinner to prevent double-submit
+  const { pendingId, run } = usePending();
 
   useEffect(() => {
     let alive = true;
@@ -40,18 +43,20 @@ export default function TopicsEditor() {
   async function addToken(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
-    const res = await fetch('/api/topics', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ lang, token: newToken }),
+    await run('add-topic', async () => {
+      const res = await fetch('/api/topics', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ lang, token: newToken }),
+      });
+      if (res.ok) {
+        setNewToken('');
+        setRevision((r) => r + 1);
+      } else {
+        const d = await res.json().catch(() => ({}));
+        setError(d.error ?? 'failed to add token');
+      }
     });
-    if (res.ok) {
-      setNewToken('');
-      setRevision((r) => r + 1);
-    } else {
-      const d = await res.json().catch(() => ({}));
-      setError(d.error ?? 'failed to add token');
-    }
   }
 
   async function removeToken(token: string) {
@@ -134,15 +139,18 @@ export default function TopicsEditor() {
         <strong style={{ fontSize: '0.85rem', color: 'var(--muted)' }}>Built-in ({lang.toUpperCase()}):</strong>{' '}
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 8 }}>
           {defaults.map((t) => (
-            <button
+            <Button
               key={t.token}
-              type="button"
-              onClick={() => toggleDefault(t)}
+              variant="pill"
+              size="sm"
+              loading={pendingId === t.token}
+              disabled={pendingId !== null}
+              onClick={() => run(t.token, () => toggleDefault(t))}
               title={t.enabled ? 'Enabled — click to turn off' : 'Disabled — click to enable'}
               style={{ padding: '4px 10px', cursor: 'pointer', border: t.enabled ? '1px solid var(--approve)' : '1px dashed var(--line)', color: t.enabled ? 'var(--text)' : 'var(--muted)', borderRadius: 999, background: t.enabled ? 'rgba(76,175,125,.12)' : 'transparent' }}
             >
               {t.token} {t.enabled ? '·' : ' ⊘'}
-            </button>
+            </Button>
           ))}
         </div>
       </div>
@@ -168,7 +176,7 @@ export default function TopicsEditor() {
                 <span key={t} className="badge">
                   {t}{' '}
                   <span style={{ cursor: 'pointer' }} title="rename" onClick={() => beginEdit(t)}>✎</span>{' '}
-                  <span style={{ cursor: 'pointer' }} title="remove" onClick={() => removeToken(t)}>✕</span>
+                  <span style={{ cursor: 'pointer' }} title="remove" onClick={() => run(`rm:${t}`, () => removeToken(t))}>✕</span>
                 </span>
               )
             ))}
@@ -185,7 +193,9 @@ export default function TopicsEditor() {
           title="lowercase letters only"
           required
         />
-        <button type="submit">Add to my topics</button>
+        <Button type="submit" loading={pendingId === 'add-topic'} disabled={!newToken.trim()}>
+        {pendingId === 'add-topic' ? 'Adding…' : 'Add to my topics'}
+      </Button>
       </form>
       {error && <p style={{ color: '#e06c6c' }}>{error}</p>}
     </section>
