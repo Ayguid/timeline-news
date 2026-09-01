@@ -63,12 +63,14 @@ export default function SourcesPage() {
     const res = await fetch('/api/sources', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, feedUrl, region: region || undefined, adapterType }),
+      // Admins can choose global vs personal via the checkbox; everyone else
+      // always adds a personal source (global omitted -> falsy).
+      body: JSON.stringify({ name, feedUrl, region: region || undefined, adapterType, global: role === 'admin' ? adminMode : false }),
     });
     const d = await res.json().catch(() => ({}));
     if (res.ok) {
       setName(''); setFeedUrl(''); setRegion('');
-      setMsg(adminMode ? 'Global source added (visible to everyone).' : 'Personal source added. Run the pipeline to pick it up.');
+      setMsg(adminMode ? 'Global source added (visible to everyone).' : 'Personal source added to My sources. Run the pipeline to pick it up.');
       setRevision((r) => r + 1);
     } else {
       setError(d.error ?? 'failed to add source');

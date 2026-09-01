@@ -86,10 +86,17 @@ export async function POST(req: Request) {
   if ('error' in v) return NextResponse.json({ error: v.error }, { status: 400 });
 
   const isAdmin = session.role === 'admin';
-  // Admin creates global sources; everyone else gets a capped personal source.
-  const ownerId = isAdmin ? null : session.id;
+  // The client sends `global` — the admin "add as global" checkbox.
+  //   global=true  -> admin-only, owner NULL (shared)
+  //   global=false -> personal source (owner = me), for anyone incl. admins
+  const wantsGlobal = body.global === true;
+  if (wantsGlobal && !isAdmin) {
+    return NextResponse.json({ error: 'only admins can add global sources' }, { status: 403 });
+  }
+  const ownerId = wantsGlobal ? null : session.id;
 
-  if (!isAdmin) {
+  // Personal sources are capped (even for an admin who left the box unchecked).
+  if (!wantsGlobal) {
     const cnt = await sql`SELECT count(*)::int AS n FROM sources WHERE owner_id = ${session.id}`;
     if (cnt[0].n >= PERSONAL_SOURCE_CAP) {
       return NextResponse.json(
