@@ -135,11 +135,13 @@ async function clusterAndScore(): Promise<void> {
   console.log(`[cluster] ${articles.length} articles -> ${candidates.length} candidate event(s)`);
 
   // --- Bulk preload (avoid a per-candidate round-trip to the DB) -----------
-  // source -> owner, and all significance tokens (defaults + user overrides).
-  const [ownerRows, defaultTok, userTok] = await Promise.all([
+  // source -> owner, all significance tokens (defaults + user overrides), and
+  // the per-(user,lang) defaults toggle.
+  const [ownerRows, defaultTok, userTok, settings] = await Promise.all([
     sql`SELECT id AS sid, user_id AS uid FROM sources`,
     sql`SELECT lang, token FROM significant_topics`,
     sql`SELECT user_id AS uid, lang, token FROM user_topic_tokens`,
+    sql`SELECT user_id AS uid, lang, defaults_enabled AS de FROM user_topic_settings`,
   ]);
   const sourceOwner = new Map(ownerRows.map((r) => [r.sid, r.uid]));
   const defaultByLang = new Map<string, string[]>();
@@ -155,6 +157,11 @@ async function clusterAndScore(): Promise<void> {
     arr.push(r.token);
     byLang.set(r.lang, arr);
   }
+  // defaults enabled unless a setting row explicitly disables it.
+  const defaultsDisabled = new Set<string>();
+  for (const r of settings) {
+    if (r.de === false) defaultsDisabled.add(`${r.uid}:${r.lang}`);
+  }
 
   // Which article belongs to which source id (to map candidate member -> owner)
   const artSource = new Map(articles.map((a) => [a.id, a.sourceId]));
@@ -166,8 +173,9 @@ async function clusterAndScore(): Promise<void> {
     const srcId = artSource.get(cand.memberIds[0]);
     const userId = sourceOwner.get(srcId ?? '') ?? 'user_demo';
 
-    // effective tokens = defaults(lang) UNION user(lang) — computed in memory
-    const defaults = defaultByLang.get(cand.lang) ?? [];
+    // effective tokens = defaults(lang) UNION user(lang), unless the user has
+    // switched the defaults off for this language — then user tokens only.
+    const defaults = defaultsDisabled.has(`${userId}:${cand.lang}`) ? [] : (defaultByLang.get(cand.lang) ?? []);
     const userTokens = userByUidLang.get(userId)?.get(cand.lang) ?? [];
     const scored = scoreEvent({
       title: cand.title,

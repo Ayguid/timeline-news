@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import TopicsEditor from './topics-editor';
+import LogoutButton from '@/components/logout-button';
 
 type Source = {
   id: string;
@@ -112,6 +113,7 @@ export default function SourcesPage() {
     <div className="wrap">
       <nav className="top">
         <Link href="/">← Timeline</Link>
+        <LogoutButton />
       </nav>
       <h1>Your Sources</h1>
       <p className="tagline">

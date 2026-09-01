@@ -1,13 +1,19 @@
 // ============================================================================
 // /api/topics — user-editable significance tokens.
-//   GET  ?lang=en  — default tokens + the user's overrides for that language
-//   POST {lang, token}      — add a token the user considers significant
-//   DELETE {lang, token}    — remove one of the user's own tokens
-// This is the "user can edit & modify SIGNIFICANT_TOPIC_TOKENS" feature.
+//   GET   ?lang=en          — default + user tokens, plus defaults_enabled
+//   POST  {lang, token}      — add a token the user considers significant
+//   DELETE {lang, token}     — remove one of the user's own tokens
+//   PATCH {lang,oldToken,newToken} — rename one of the user's own tokens
+// Defaults on/off:
+//   PUT   /settings {lang, defaultsEnabled}  — toggle built-in defaults
+//   GET   /settings?lang=x  — read the toggle
+// This is the "user can edit & modify SIGNIFICANT_TOPIC_TOKENS" feature, incl.
+// the choice to switch the built-in topics off for a language.
 // ============================================================================
 import { NextResponse } from 'next/server';
 import { sql } from '@/lib/db';
 import { currentUser } from '@/lib/session';
+import { topicState } from '@/lib/topics';
 
 function newId(prefix: string): string {
   return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
@@ -20,15 +26,13 @@ export async function GET(req: Request) {
   const url = new URL(req.url);
   const lang = url.searchParams.get('lang') ?? 'en';
 
-  const [defaults, overrides] = await Promise.all([
-    sql`SELECT token FROM significant_topics WHERE lang = ${lang} ORDER BY token`,
-    sql`SELECT token FROM user_topic_tokens WHERE user_id = ${session.id} AND lang = ${lang} ORDER BY token`,
-  ]);
+  const state = await topicState(session.id, lang);
 
   return NextResponse.json({
     lang,
-    defaultTokens: defaults.map((r) => r.token),
-    userTokens: overrides.map((r) => r.token),
+    defaultsEnabled: state.defaultsEnabled,
+    defaultTokens: state.defaultTokens,
+    userTokens: state.userTokens,
   });
 }
 

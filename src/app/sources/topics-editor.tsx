@@ -15,6 +15,7 @@ export default function TopicsEditor() {
   const [lang, setLang] = useState('en');
   const [defaultTokens, setDefaultTokens] = useState<string[]>([]);
   const [userTokens, setUserTokens] = useState<string[]>([]);
+  const [defaultsEnabled, setDefaultsEnabled] = useState(true);
   const [newToken, setNewToken] = useState('');
   const [error, setError] = useState<string | null>(null);
   // inline edit state
@@ -33,6 +34,7 @@ export default function TopicsEditor() {
         if (!alive) return;
         setDefaultTokens(data.defaultTokens ?? []);
         setUserTokens(data.userTokens ?? []);
+        setDefaultsEnabled(data.defaultsEnabled !== false);
       } catch {
         // ignore
       }
@@ -64,6 +66,21 @@ export default function TopicsEditor() {
       body: JSON.stringify({ lang, token }),
     });
     setRevision((r) => r + 1);
+  }
+
+  async function toggleDefaults(e: React.FormEvent) {
+    e.preventDefault();
+    const next = !defaultsEnabled;
+    const res = await fetch('/api/topics/settings', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ lang, defaultsEnabled: next }),
+    });
+    if (res.ok) setDefaultsEnabled(next);
+    else {
+      const d = await res.json().catch(() => ({}));
+      setError(d.error ?? 'failed to update defaults');
+    }
   }
 
   function beginEdit(token: string) {
@@ -101,7 +118,8 @@ export default function TopicsEditor() {
       <h2>Significance topics</h2>
       <p className="tagline">
         Keywords that flag an event as important for <em>you</em> (per language).
-        Defaults show for reference; your additions are merged in at scoring time.
+        You can add your own, rename or remove them, and switch the built-in
+        defaults off entirely for a language.
       </p>
 
       <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
@@ -116,6 +134,20 @@ export default function TopicsEditor() {
             {l.toUpperCase()}
           </button>
         ))}
+      </div>
+
+      <div style={{ marginBottom: 16 }}>
+        <label style={{ fontSize: '0.9rem', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          <input
+            type="checkbox"
+            checked={defaultsEnabled}
+            onChange={(e) => toggleDefaults(e as unknown as React.FormEvent)}
+          />
+          Use built-in significance topics ({lang.toUpperCase()})
+        </label>
+        <div style={{ fontSize: '0.78rem', color: 'var(--muted)', marginTop: 2 }}>
+          Off = score only by my own topics for {lang.toUpperCase()}.
+        </div>
       </div>
 
       <form onSubmit={addToken} style={{ display: 'flex', gap: 8, marginBottom: 16, maxWidth: 380 }}>

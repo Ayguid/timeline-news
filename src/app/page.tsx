@@ -2,6 +2,7 @@ import { sql } from '@/lib/db';
 import { currentUser } from '@/lib/session';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
+import LogoutButton from '@/components/logout-button';
 
 type TimelineEvent = {
   id: string;
@@ -60,6 +61,7 @@ export default async function TimelinePage() {
       <nav className="top">
         <span>{session.email ?? 'Demo'}</span>
         <Link href="/sources">Sources</Link>
+        <LogoutButton />
       </nav>
 
       <div className="lockup">
