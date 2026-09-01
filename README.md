@@ -23,8 +23,9 @@ Implemented so far:
       (admin-curated, scraped once) + optional **personal sources** per user
       (capped). Users pick which global sources they want via `user_sources` —
       a filter preference, never a copy of the news.
-- [x] Clustering heuristic — 2 passes: token-overlap grouping, then fragment
-      merge (same event phrased differently across outlets)
+- [x] Clustering heuristic — 2 passes: token-overlap grouping, then
+      fragment merge on df-weighted RARE tokens (proper nouns), so unrelated
+      stories sharing common words (police/sydney) are NOT fused
 - [x] Significance scoring (source corroboration + per-language curated topics),
       computed once per tier
 - [x] Multi-language significance topics (en/es) with per-topic activation
