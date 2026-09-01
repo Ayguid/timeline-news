@@ -46,9 +46,9 @@ async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promis
 }
 
 async function ingestAll(): Promise<void> {
-  // active sources across all users, joined to adapter type
+  // All ACTIVE sources: global (owner_id NULL) + personal (owner_id set).
   const sources = await sql`
-    SELECT s.id, s.name, s.feed_url, s.adapter_type, s.user_id
+    SELECT s.id, s.name, s.feed_url, s.adapter_type, s.owner_id
     FROM sources s
     WHERE s.active = true
   `;
@@ -106,8 +106,39 @@ async function ingestAll(): Promise<void> {
   console.log(`[ingest] inserted=${inserted} skipped_dupes=${skipped} failed=${failed}`);
 }
 
-async function clusterAndScore(): Promise<void> {
-  // fresh articles (last 72h) that aren't yet attached to an event
+// ---------------------------------------------------------------------------
+// clusterAndScore — two-tier event building.
+//   GLOBAL scope  : articles from global sources (owner_id NULL) cluster into
+//                   SHARED events (user_id NULL). Scored with the built-in
+//                   default topics only (no per-user bias) — one deterministic,
+//                   auto-approved record shared by everyone.
+//   PERSONAL scope: for each user, their own sources' articles cluster into
+//                   PERSONAL events (user_id = owner), scored with that user's
+//                   topic preferences.
+// ---------------------------------------------------------------------------
+type Scope = { userId: string | null; label: string };
+
+/** Compute effective scoring tokens for a candidate in a given scope. */
+function tokensForScope(
+  scope: Scope,
+  candLang: string,
+  preload: { defaultByLang: Map<string, string[]>; userByUidLang: Map<string, Map<string, string[]>>; disabledSet: Set<string> },
+): string[] {
+  const allDefaults = preload.defaultByLang.get(candLang) ?? [];
+  // Global scope (userId null): no per-user override/disable — defaults only,
+  // so the shared record is deterministic.
+  if (!scope.userId) return [...new Set(allDefaults)];
+  // Personal scope: enabled defaults ∪ the owner's own tokens.
+  const defaults = allDefaults.filter((t) => !preload.disabledSet.has(`${scope.userId}:${candLang}:${t}`));
+  const userTokens = preload.userByUidLang.get(scope.userId)?.get(candLang) ?? [];
+  return [...new Set([...defaults, ...userTokens])];
+}
+
+async function runScopedCluster(
+  scope: Scope,
+  preload: { defaultByLang: Map<string, string[]>; userByUidLang: Map<string, Map<string, string[]>>; disabledSet: Set<string> },
+): Promise<number> {
+  // fresh articles in this scope, not yet attached to an event
   const articles = await sql`
     SELECT a.id, a.source_id AS "sourceId", a.url, a.title, a.published_at AS "publishedAt",
            s.lang AS lang
@@ -116,11 +147,11 @@ async function clusterAndScore(): Promise<void> {
     LEFT JOIN event_articles ea ON ea.article_id = a.id
     WHERE ea.article_id IS NULL
       AND a.published_at > now() - interval '72 hours'
+      ${scope.userId ? sql`AND s.owner_id = ${scope.userId}` : sql`AND s.owner_id IS NULL`}
   `;
-
   if (articles.length === 0) {
-    console.log('[cluster] no un-clustered fresh articles');
-    return;
+    console.log(`[${scope.label}] no un-clustered fresh articles`);
+    return 0;
   }
 
   const candidates = clusterArticles(articles.map((a) => ({
@@ -131,19 +162,64 @@ async function clusterAndScore(): Promise<void> {
     publishedAt: new Date(a.publishedAt),
     lang: a.lang ?? undefined,
   })));
+  console.log(`[${scope.label}] ${articles.length} articles -> ${candidates.length} candidate event(s)`);
 
-  console.log(`[cluster] ${articles.length} articles -> ${candidates.length} candidate event(s)`);
+  const artSource = new Map(articles.map((a) => [a.id, a.sourceId]));
+  let created = 0;
 
-  // --- Bulk preload (avoid a per-candidate round-trip to the DB) -----------
-  // source -> owner, all significance tokens (defaults + user overrides), and
-  // the per-(user,lang,topc) disabled list.
-  const [ownerRows, defaultTok, userTok, disabledRows] = await Promise.all([
-    sql`SELECT id AS sid, user_id AS uid FROM sources`,
+  for (const cand of candidates) {
+    const srcId = artSource.get(cand.memberIds[0]) ?? '';
+    const scored = scoreEvent({
+      title: cand.title,
+      summary: cand.summary,
+      sourceCount: cand.sourceIds.length,
+      tokens: tokensForScope(scope, cand.lang, preload),
+    });
+
+    if (scored.significanceScore < THRESHOLDS.propose) {
+      console.log(`  - below bar (${scored.significanceScore}): ${cand.title.slice(0, 60)}`);
+      continue;
+    }
+
+    const autoApproved = scored.significanceScore >= THRESHOLDS.autoApprove;
+    const status = autoApproved ? 'approved' : 'proposed';
+    const eventId = newId('evt');
+
+    await sql`
+      INSERT INTO events
+        (id, user_id, title, summary, event_date, date_inferred, source_count,
+         distinct_sources, topic_match_score, significance_score, status, approval_source)
+      VALUES
+        (${eventId}, ${scope.userId}, ${cand.title}, ${cand.summary},
+         ${cand.eventDate}, true, ${scored.sourceCount}, ${cand.sourceIds.length},
+         ${scored.topicMatchScore}, ${scored.significanceScore}, ${status}, 'auto')
+      ON CONFLICT DO NOTHING
+    `;
+
+    // Batch the event_article links.
+    if (cand.memberIds.length > 0) {
+      const placeholders = cand.memberIds.map((_, i) => `($1,$${i + 2})`).join(', ');
+      await sql.unsafe(
+        `INSERT INTO event_articles (event_id, article_id) VALUES ${placeholders} ON CONFLICT DO NOTHING`,
+        [eventId, ...cand.memberIds],
+      );
+    }
+
+    console.log(`  + [${status}] (${scored.significanceScore}) ${cand.title.slice(0, 60)}`);
+    created++;
+  }
+  return created;
+}
+
+async function clusterAndScore(): Promise<void> {
+  // Bulk preload source->owner, all significance tokens, and per-user disables.
+  const [ownerRows, defaultTok, userTok, disabledRows, personalOwners] = await Promise.all([
+    sql`SELECT id AS sid, owner_id AS uid FROM sources`,
     sql`SELECT lang, token FROM significant_topics`,
     sql`SELECT user_id AS uid, lang, token FROM user_topic_tokens`,
     sql`SELECT user_id AS uid, lang, token FROM user_disabled_default_topics`,
+    sql`SELECT DISTINCT owner_id AS uid FROM sources WHERE owner_id IS NOT NULL AND active = true`,
   ]);
-  const sourceOwner = new Map(ownerRows.map((r) => [r.sid, r.uid]));
   const defaultByLang = new Map<string, string[]>();
   for (const r of defaultTok) {
     const arr = defaultByLang.get(r.lang) ?? [];
@@ -157,69 +233,16 @@ async function clusterAndScore(): Promise<void> {
     arr.push(r.token);
     byLang.set(r.lang, arr);
   }
-  // per-topic: a default is skipped only if the user disabled THAT token.
   const disabledSet = new Set<string>();
   for (const r of disabledRows) disabledSet.add(`${r.uid}:${r.lang}:${r.token}`);
+  const preload = { defaultByLang, userByUidLang, disabledSet };
 
-  // Which article belongs to which source id (to map candidate member -> owner)
-  const artSource = new Map(articles.map((a) => [a.id, a.sourceId]));
+  // 1) Shared/global events (admin sources).
+  await runScopedCluster({ userId: null, label: 'global' }, preload);
 
-  type PendingEvent = { eventId: string; memberIds: string[] };
-  const eventsToInsert: PendingEvent[] = [];
-
-  for (const cand of candidates) {
-    const srcId = artSource.get(cand.memberIds[0]);
-    const userId = sourceOwner.get(srcId ?? '') ?? 'user_demo';
-
-    // effective tokens = (enabled defaults) UNION user tokens — per-topic.
-    const allDefaults = defaultByLang.get(cand.lang) ?? [];
-    const defaults = allDefaults.filter(
-      (t) => !disabledSet.has(`${userId}:${cand.lang}:${t}`),
-    );
-    const userTokens = userByUidLang.get(userId)?.get(cand.lang) ?? [];
-    const scored = scoreEvent({
-      title: cand.title,
-      summary: cand.summary,
-      sourceCount: cand.sourceIds.length,
-      tokens: [...new Set([...defaults, ...userTokens])],
-    });
-
-    if (scored.significanceScore < THRESHOLDS.propose) {
-      console.log(`  - below bar (${scored.significanceScore}): ${cand.title.slice(0, 60)}`);
-      continue;
-    }
-
-    const autoApproved = scored.significanceScore >= THRESHOLDS.autoApprove;
-    const status = autoApproved ? 'approved' : 'proposed';
-    const eventId = newId('evt');
-    eventsToInsert.push({ eventId, memberIds: cand.memberIds });
-
-    await sql`
-      INSERT INTO events
-        (id, user_id, title, summary, event_date, date_inferred, source_count,
-         distinct_sources, topic_match_score, significance_score, status, approval_source)
-      VALUES
-        (${eventId}, ${userId}, ${cand.title}, ${cand.summary},
-         ${cand.eventDate}, true, ${scored.sourceCount}, ${cand.sourceIds.length},
-         ${scored.topicMatchScore}, ${scored.significanceScore}, ${status}, 'auto')
-      ON CONFLICT DO NOTHING
-    `;
-
-    console.log(`  + [${status}] (${scored.significanceScore}) ${cand.title.slice(0, 60)}`);
-  }
-
-  // Batch all event_article links (one statement per event, no per-link round-trip).
-  for (const ev of eventsToInsert) {
-    if (ev.memberIds.length === 0) continue;
-    const placeholders = ev.memberIds.map((_, i) => `($1,$${i + 2})`).join(', ');
-    const linkParams: Array<string | Date | null> = [
-      ev.eventId,
-      ...ev.memberIds,
-    ];
-    await sql.unsafe(
-      `INSERT INTO event_articles (event_id, article_id) VALUES ${placeholders} ON CONFLICT DO NOTHING`,
-      linkParams,
-    );
+  // 2) Personal events per user who owns active sources.
+  for (const owner of personalOwners) {
+    await runScopedCluster({ userId: owner.uid, label: `personal:${owner.uid}` }, preload);
   }
 }
 

@@ -33,6 +33,17 @@ export default async function TimelinePage() {
   if (!session?.id) redirect('/auth/signin');
 
   const rows = await sql`
+    WITH visible AS (
+      SELECT DISTINCT e.id
+      FROM events e
+      JOIN event_articles ea ON ea.event_id = e.id
+      JOIN raw_articles a ON a.id = ea.article_id
+      JOIN sources s ON s.id = a.source_id
+      JOIN user_sources us ON us.source_id = s.id AND us.user_id = ${session.id}
+      WHERE e.user_id IS NULL AND us.enabled = true
+      UNION
+      SELECT id FROM events WHERE user_id = ${session.id}
+    )
     SELECT e.id, e.title, e.summary, e.event_date AS "eventDate",
            e.significance_score AS "significanceScore",
            e.distinct_sources AS "sourceCount", e.status,
@@ -46,11 +57,11 @@ export default async function TimelinePage() {
              '[]'
            ) AS articles
     FROM events e
-    JOIN event_articles ea ON ea.event_id = e.id
-    JOIN raw_articles a ON a.id = ea.article_id
-    JOIN sources s ON s.id = a.source_id
-    WHERE e.user_id = ${session.id}
-      AND e.status = 'approved'
+    JOIN visible v ON v.id = e.id
+    LEFT JOIN event_articles ea ON ea.event_id = e.id
+    LEFT JOIN raw_articles a ON a.id = ea.article_id
+    LEFT JOIN sources s ON s.id = a.source_id
+    WHERE e.status = 'approved'
     GROUP BY e.id
     ORDER BY e.event_date ASC
   `;

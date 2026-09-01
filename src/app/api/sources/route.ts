@@ -1,65 +1,116 @@
 // ============================================================================
-// /api/sources — user-curated feed management (the "user picks their own
-// sources" requirement). GET lists the user's sources; POST adds one.
+// /api/sources — two-tier source management (migration 0005).
+//   GET                         — GLOBAL sources (admin-curated, with the
+//                                  user's enabled flag in user_sources) PLUS
+//                                  the user's PERSONAL sources.
+//   POST {feedUrl,...}          — adds a source.
+//                                  Admin: creates a GLOBAL source (owner_id NULL).
+//                                  User:  creates a PERSONAL source (owner_id = me),
+//                                         capped at PERSONAL_SOURCE_CAP.
+//   PATCH/DELETE /[id]          — owner edits/removes their personal source;
+//                                  admin edits/removes any global source.
+// The user's SELECTION of global sources lives in user_sources; POST
+// /api/sources/[id]/enable toggles it.
 // ============================================================================
 import { NextResponse } from 'next/server';
 import { sql } from '@/lib/db';
 import { currentUser } from '@/lib/session';
 
+/** Max PERSONAL sources a single user may add (keeps ingestion bounded). */
+export const PERSONAL_SOURCE_CAP = 5;
+
 function newId(prefix: string): string {
   return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+/** Normalize: reject bad URL, default adapter to rss. */
+function validate(body: { name?: string; feedUrl?: string; adapterType?: string }) {
+  const name = body.name?.trim();
+  const feedUrl = body.feedUrl?.trim();
+  if (!name || !feedUrl) return { error: 'name and feedUrl required' };
+  let adapterType: string;
+  if (body.adapterType === 'html') adapterType = 'html';
+  else if (body.adapterType === 'rss') adapterType = 'rss';
+  else adapterType = 'rss';
+  try {
+    new URL(feedUrl);
+  } catch {
+    return { error: 'feedUrl is not a valid URL' };
+  }
+  return { name, feedUrl, adapterType };
+}
+
+function newSourceId() {
+  return newId('src');
 }
 
 export async function GET() {
   const session = await currentUser();
   if (!session?.id) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
 
-  const sources = await sql`
+  // Global sources + whether the user has enabled each one.
+  const global = await sql`
+    SELECT s.id, s.name, s.feed_url AS "feedUrl", s.adapter_type AS "adapterType",
+           s.lang, s.region, s.active,
+           COALESCE(us.enabled, false) AS "enabled"
+    FROM sources s
+    LEFT JOIN user_sources us ON us.source_id = s.id AND us.user_id = ${session.id}
+    WHERE s.owner_id IS NULL
+    ORDER BY s.name
+  `;
+
+  // The user's personal sources (owner_id = me).
+  const personal = await sql`
     SELECT id, name, feed_url AS "feedUrl", adapter_type AS "adapterType",
            lang, region, active, created_at AS "createdAt"
-    FROM sources WHERE user_id = ${session.id} ORDER BY created_at ASC
+    FROM sources
+    WHERE owner_id = ${session.id}
+    ORDER BY created_at ASC
   `;
-  return NextResponse.json({ sources });
+
+  return NextResponse.json({
+    global,
+    personal,
+    role: session.role,
+    personalCap: PERSONAL_SOURCE_CAP,
+    personalCount: personal.length,
+  });
 }
 
 export async function POST(req: Request) {
   const session = await currentUser();
   if (!session?.id) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
 
-  let body: { name?: string; feedUrl?: string; region?: string; adapterType?: string };
-  try {
-    body = await req.json();
-  } catch {
-    return NextResponse.json({ error: 'invalid json' }, { status: 400 });
-  }
+  const body = await req.json().catch(() => ({}));
+  const v = validate(body);
+  if ('error' in v) return NextResponse.json({ error: v.error }, { status: 400 });
 
-  const name = body.name?.trim();
-  const feedUrl = body.feedUrl?.trim();
-  if (!name || !feedUrl) {
-    return NextResponse.json({ error: 'name and feedUrl required' }, { status: 400 });
-  }
-  // adapter: rss (default) or html
-  const adapterType = body.adapterType === 'html' ? 'html' : 'rss';
-  // sanity: must look like a URL
-  try {
-    new URL(feedUrl);
-  } catch {
-    return NextResponse.json({ error: 'feedUrl is not a valid URL' }, { status: 400 });
+  const isAdmin = session.role === 'admin';
+  // Admin creates global sources; everyone else gets a capped personal source.
+  const ownerId = isAdmin ? null : session.id;
+
+  if (!isAdmin) {
+    const cnt = await sql`SELECT count(*)::int AS n FROM sources WHERE owner_id = ${session.id}`;
+    if (cnt[0].n >= PERSONAL_SOURCE_CAP) {
+      return NextResponse.json(
+        { error: `personal source limit reached (${PERSONAL_SOURCE_CAP})` },
+        { status: 409 },
+      );
+    }
   }
 
   try {
-    const id = newId('src');
+    const id = newSourceId();
     await sql`
-      INSERT INTO sources (id, user_id, name, feed_url, adapter_type, lang, region, active)
-      VALUES (${id}, ${session.id}, ${name}, ${feedUrl}, ${adapterType}, 'en',
-              ${body.region ?? null}, true)
+      INSERT INTO sources (id, name, feed_url, adapter_type, lang, region, active, owner_id)
+      VALUES (${id}, ${v.name}, ${v.feedUrl}, ${v.adapterType}, 'en',
+              ${body.region ?? null}, true, ${ownerId})
     `;
-    return NextResponse.json({ id, name, feedUrl, adapterType }, { status: 201 });
+    return NextResponse.json({ id, name: v.name, feedUrl: v.feedUrl, adapterType: v.adapterType, ownerId }, { status: 201 });
   } catch (e) {
-    // unique (user_id, feed_url) violation
     const msg = (e as { message?: string }).message ?? '';
-    if (msg.includes('duplicate')) {
-      return NextResponse.json({ error: 'you already subscribed to this feed' }, { status: 409 });
+    if (msg.includes('duplicate') || msg.includes('unique')) {
+      return NextResponse.json({ error: 'this feed is already in the source list' }, { status: 409 });
     }
     throw e;
   }

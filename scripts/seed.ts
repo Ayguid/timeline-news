@@ -1,6 +1,6 @@
 // ============================================================================
-// seed.ts — provision a demo user, the 'rss' adapter row, and starter
-// news feeds. Run once against a fresh DB, or use --reset to wipe first.
+// seed.ts — provision the demo (admin) user, adapter rows, and the GLOBAL
+// starter feeds, and enable them for the demo user (migration 0005 two-tier).
 // Usage: npx tsx scripts/seed.ts [--reset]
 // ============================================================================
 import { sql } from '../src/lib/db';
@@ -8,14 +8,11 @@ import { sql } from '../src/lib/db';
 const reset = process.argv.includes('--reset');
 const DEMO_EMAIL = process.env.DEMO_EMAIL ?? 'demo@timeline.news';
 
-// reusable per-source id
 function newId(prefix: string): string {
   return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
-// v1 starter feeds. Multi-source by default (soul.md #2): the demo user gets
-// several English RSS-native outlets plus a Spanish one, to exercise the
-// multi-language scoring path. User can add their own via the UI later.
+// v1 GLOBAL starter feeds (admin-curated, owner_id NULL = shared).
 const STARTER_FEEDS = [
   { name: 'BBC World', url: 'https://feeds.bbci.co.uk/news/world/rss.xml', region: 'global', lang: 'en' },
   { name: 'The Guardian World', url: 'https://www.theguardian.com/world/rss', region: 'global', lang: 'en' },
@@ -24,11 +21,9 @@ const STARTER_FEEDS = [
   { name: 'El País Internacional', url: 'https://feeds.elpais.com/mrss-s/pages/ep/site/elpais.com/portada', region: 'es', lang: 'es' },
 ];
 
-// adapter type rows (the code seam) — every adapter registered in code must
-// have a row here or sources referencing it will fail the FK constraint.
 const ADAPTER_ROWS = [
-  { id: newId('adap'), name: 'Generic RSS/Atom feed', type: 'rss', desc: 'Ingests any user-added RSS/Atom feed URL.' },
-  { id: newId('adap'), name: 'Generic HTML page (no RSS)', type: 'html', desc: 'Scrapes headlines from a page URL when no RSS feed exists (respects robots.txt).' },
+  { id: newId('adap'), name: 'Generic RSS/Atom feed', type: 'rss', desc: 'Ingests any RSS/Atom feed URL.' },
+  { id: newId('adap'), name: 'Generic HTML page (no RSS)', type: 'html', desc: 'Scrapes headlines when no RSS exists (respects robots.txt).' },
 ];
 
 async function main() {
@@ -39,6 +34,7 @@ async function main() {
         DELETE FROM event_articles;
         DELETE FROM events;
         DELETE FROM raw_articles;
+        DELETE FROM user_sources;
         DELETE FROM sources;
         DELETE FROM verification_tokens;
         DELETE FROM accounts;
@@ -57,24 +53,32 @@ async function main() {
       `;
     }
 
-    // demo user (id stable so pipelines can attach events)
+    // demo user: admin (curates global sources), stable id
     await sql`
-      INSERT INTO users (id, name, email)
-      VALUES ('user_demo', 'Demo User', ${DEMO_EMAIL})
+      INSERT INTO users (id, name, email, role)
+      VALUES ('user_demo', 'Demo User', ${DEMO_EMAIL}, 'admin')
       ON CONFLICT (email) DO NOTHING
     `;
 
-    // starter feeds
+    // global starter feeds (owner_id NULL = shared across users)
     for (const f of STARTER_FEEDS) {
       await sql`
-        INSERT INTO sources (id, user_id, name, feed_url, adapter_type, lang, region, active)
-        VALUES (${newId('src')}, 'user_demo', ${f.name}, ${f.url}, 'rss', ${f.lang}, ${f.region}, true)
-        ON CONFLICT (user_id, feed_url) DO NOTHING
+        INSERT INTO sources (id, name, feed_url, adapter_type, lang, region, active, owner_id)
+        VALUES (${newId('src')}, ${f.name}, ${f.url}, 'rss', ${f.lang}, ${f.region}, true, NULL)
+        ON CONFLICT (feed_url) DO NOTHING
       `;
     }
 
-    const n = await sql`SELECT count(*)::int AS n FROM sources WHERE user_id = 'user_demo'`;
-    console.log(`[seed] demo user + ${n[0].n} starter source(s) ready.`);
+    // enable all global sources for the demo user (so they have a timeline)
+    await sql`
+      INSERT INTO user_sources (user_id, source_id, enabled)
+      SELECT 'user_demo', id, true FROM sources WHERE owner_id IS NULL
+      ON CONFLICT (user_id, source_id) DO NOTHING
+    `;
+
+    const n = await sql`SELECT count(*)::int AS n FROM sources WHERE owner_id IS NULL`;
+    const enabled = await sql`SELECT count(*)::int AS n FROM user_sources WHERE user_id = 'user_demo' AND enabled = true`;
+    console.log(`[seed] demo admin + ${n[0].n} global source(s); ${enabled[0].n} enabled for demo.`);
   } finally {
     await sql.end();
   }

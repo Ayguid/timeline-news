@@ -10,17 +10,27 @@
 // never apply to a production build.
 // ============================================================================
 import { auth } from '@/auth';
+import { sql } from '@/lib/db';
 import { cookies } from 'next/headers';
 
 export interface SessionUser {
   id: string;
   email?: string | null;
+  role: 'admin' | 'user';
 }
 
 export async function currentUser(): Promise<SessionUser | null> {
-  const session = await auth();
-  if (session?.user?.id) {
-    return { id: session.user.id, email: session.user.email ?? null };
+  try {
+    const session = await auth();
+    if (session?.user?.id) {
+      return {
+        id: session.user.id,
+        email: session.user.email ?? null,
+        role: await userRole(session.user.id),
+      };
+    }
+  } catch {
+    // fall through to dev bypass below
   }
 
   if (process.env.NODE_ENV === 'development') {
@@ -30,9 +40,19 @@ export async function currentUser(): Promise<SessionUser | null> {
       return {
         id: 'user_demo',
         email: process.env.DEMO_EMAIL ?? 'demo@timeline.news',
+        role: await userRole('user_demo'),
       };
     }
   }
 
   return null;
+}
+
+async function userRole(userId: string): Promise<'admin' | 'user'> {
+  try {
+    const rows = await sql`SELECT role FROM users WHERE id = ${userId} LIMIT 1`;
+    return rows.length && rows[0].role === 'admin' ? 'admin' : 'user';
+  } catch {
+    return 'user';
+  }
 }

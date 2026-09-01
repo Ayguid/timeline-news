@@ -1,9 +1,14 @@
 // ============================================================================
-// GET /api/timeline — chronologically-ordered approved events for the user.
+// GET /api/timeline — chronologically-ordered events for the user.
 //   ?days=14  — look back window (default 14)
 //   ?status=approved|proposed|all  — default approved
-// Ordered by event_date ASC = the product's invariant (soul.md #3, and the
-// user's explicit call: chronological view).
+//
+// Two-tier view (migration 0005):
+//   - GLOBAL events (user_id NULL): every approved global event whose covering
+//     sources the user has ENABLED in user_sources. Shared record, filtered by
+//     the user's source preferences. Global events are auto-approved once.
+//   - PERSONAL events (user_id = me): built from the user's own sources.
+// Ordered by event_date ASC = the product's invariant (soul.md #3).
 // ============================================================================
 import { NextResponse } from 'next/server';
 import { sql } from '@/lib/db';
@@ -22,11 +27,27 @@ export async function GET(req: Request) {
   const whereStatus =
     status === 'all' ? sql`AND e.status != 'rejected'` : sql`AND e.status = ${status}`;
 
+  // A global event is shown to the user iff they have enabled at least one of
+  // the sources covering it. Personal events are always shown to their owner.
+  // EXPLICITLY: global events require e.user_id IS NULL AND an enabled source.
+  // This is the join that personalizes the shared record without copying it.
   const events = await sql`
+    WITH visible AS (
+      SELECT DISTINCT e.id
+      FROM events e
+      JOIN event_articles ea ON ea.event_id = e.id
+      JOIN raw_articles a ON a.id = ea.article_id
+      JOIN sources s ON s.id = a.source_id
+      JOIN user_sources us ON us.source_id = s.id AND us.user_id = ${session.id}
+      WHERE e.user_id IS NULL AND us.enabled = true
+      UNION
+      SELECT id FROM events WHERE user_id = ${session.id}
+    )
     SELECT e.id, e.title, e.summary, e.event_date AS "eventDate",
            e.significance_score AS "significanceScore",
            e.distinct_sources AS "sourceCount", e.topic_match_score AS "topicMatchScore",
            e.status, e.approval_source AS "approvalSource",
+           e.user_id AS "userId",
            COALESCE(
              json_agg(json_build_object(
                'articleUrl', a.url,
@@ -37,11 +58,11 @@ export async function GET(req: Request) {
              '[]'
            ) AS articles
     FROM events e
-    JOIN event_articles ea ON ea.event_id = e.id
-    JOIN raw_articles a ON a.id = ea.article_id
-    JOIN sources s ON s.id = a.source_id
-    WHERE e.user_id = ${session.id}
-      AND e.event_date > now() - (${days} || ' days')::interval
+    JOIN visible v ON v.id = e.id
+    LEFT JOIN event_articles ea ON ea.event_id = e.id
+    LEFT JOIN raw_articles a ON a.id = ea.article_id
+    LEFT JOIN sources s ON s.id = a.source_id
+    WHERE e.event_date > now() - (${days} || ' days')::interval
       ${whereStatus}
     GROUP BY e.id
     ORDER BY e.event_date ASC
