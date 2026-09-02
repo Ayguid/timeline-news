@@ -47,19 +47,40 @@ export default async function TimelinePage() {
                 <span className="badge">{ev.sourceCount} source(s)</span>
                 <span className="badge">sig {ev.significanceScore}</span>
               </div>
-              <div className="sources">
-                {ev.articles.map((a, i) => (
-                  <span key={i}>
-                    {a.articleUrl ? (
-                      <a className="source-link" href={a.articleUrl} target="_blank" rel="noopener noreferrer">
-                        {a.sourceName} ↗
-                      </a>
-                    ) : (
-                      <span className="source-link">{a.sourceName}</span>
-                    )}
-                  </span>
-                ))}
-              </div>
+              {ev.articles.length > 1 ? (
+                <details className="framing" open={ev.articles.length <= 3}>
+                  <summary>
+                    <strong>How each outlet framed it</strong>{' '}
+                    <span className="muted-note">({ev.articles.length} stories)</span>
+                  </summary>
+                  <div className="framed">
+                    {ev.articles.map((a, i) => (
+                      <div className="framed-card" key={i}>
+                        <span className="framed-source">{a.sourceName}</span>
+                        {a.articleUrl ? (
+                          <a href={a.articleUrl} target="_blank" rel="noopener noreferrer">{a.title}</a>
+                        ) : (
+                          <span>{a.title || a.sourceName}</span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </details>
+              ) : (
+                <div className="sources">
+                  {ev.articles.map((a, i) => (
+                    <span key={i}>
+                      {a.articleUrl ? (
+                        <a className="source-link" href={a.articleUrl} target="_blank" rel="noopener noreferrer">
+                          {a.sourceName} ↗
+                        </a>
+                      ) : (
+                        <span className="source-link">{a.sourceName}</span>
+                      )}
+                    </span>
+                  ))}
+                </div>
+              )}
             </div>
           ))}
         </div>

@@ -46,6 +46,15 @@ h1 { font-size: 1.6rem; margin: 8px 0 4px; }
 .badge.approved { color: var(--approve); border-color: var(--approve); }
 .sources { margin-top: 6px; }
 .source-link { display: inline-block; font-size: 0.82rem; margin-right: 12px; }
+
+/* differential framing — how each outlet covered the same event */
+.framing { margin-top: 10px; border: 1px dashed var(--line); border-radius: 8px; padding: 8px 12px; }
+.framing summary { cursor: pointer; font-size: 0.82rem; color: var(--accent); }
+.muted-note { color: var(--muted); font-weight: normal; }
+.framed { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 8px; margin-top: 8px; }
+.framed-card { border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; background: rgba(255,255,255,0.02); font-size: 0.85rem; }
+.framed-card a { display: block; line-height: 1.35; }
+.framed-source { display: block; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); margin-bottom: 4px; }
 nav.top { display: flex; gap: 16px; align-items: center; font-size: 0.9rem; }
 .empty { color: var(--muted); padding: 40px 0; text-align: center; }
 
