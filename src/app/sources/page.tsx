@@ -81,16 +81,29 @@ export default function SourcesPage() {
     }
   }
 
-  /** Toggle a GLOBAL source in the user's selection. */
+  /** Toggle a GLOBAL source in the user's selection. Optimistic: flip the
+   * On/Off pill immediately (no flash back → no double-tap window), persist,
+   * revert only on failure. */
   async function toggleGlobal(id: string, enabled: boolean) {
     setError(null);
-    const res = await fetch(`/api/sources/${id}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ enabled: !enabled }),
-    });
-    if (res.ok) setRevision((r) => r + 1);
-    else { const d = await res.json().catch(() => ({})); setError(d.error ?? 'failed to toggle'); }
+    const nextEnabled = !enabled;
+    setGlobal((prev) => prev.map((s) => (s.id === id ? { ...s, enabled: nextEnabled } : s)));
+    try {
+      const res = await fetch(`/api/sources/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled: nextEnabled }),
+      });
+      if (res.ok) setRevision((r) => r + 1);
+      else {
+        const d = await res.json().catch(() => ({}));
+        setError(d.error ?? 'failed to toggle');
+        setGlobal((prev) => prev.map((s) => (s.id === id ? { ...s, enabled } : s)));
+      }
+    } catch {
+      setGlobal((prev) => prev.map((s) => (s.id === id ? { ...s, enabled } : s)));
+      setError('network error toggling source');
+    }
   }
 
   function startEdit(s: Source) {

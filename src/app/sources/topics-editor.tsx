@@ -98,18 +98,32 @@ export default function TopicsEditor() {
     }
   }
 
-  /** Toggle a single built-in default topic on/off. */
+  /** Toggle a single built-in default topic on/off. Optimistic: flip the chip
+   * immediately so there's no flash back to the old state (which caused a
+   * double-tap window), then persist; revert only on failure. A revision bump
+   * re-syncs from the server. */
   async function toggleDefault(t: DefaultTopic) {
     setError(null);
-    const res = await fetch('/api/topics/settings', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ lang, token: t.token, enabled: !t.enabled }),
-    });
-    if (res.ok) setRevision((r) => r + 1);
-    else {
-      const d = await res.json().catch(() => ({}));
-      setError(d.error ?? 'failed to update topic');
+    const nextEnabled = !t.enabled;
+    // optimistic flip
+    setDefaults((prev) => prev.map((x) => (x.token === t.token ? { ...x, enabled: nextEnabled } : x)));
+    try {
+      const res = await fetch('/api/topics/settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ lang, token: t.token, enabled: nextEnabled }),
+      });
+      if (res.ok) {
+        setRevision((r) => r + 1);
+      } else {
+        const d = await res.json().catch(() => ({}));
+        setError(d.error ?? 'failed to update topic');
+        // revert the optimistic flip
+        setDefaults((prev) => prev.map((x) => (x.token === t.token ? { ...x, enabled: t.enabled } : x)));
+      }
+    } catch {
+      setDefaults((prev) => prev.map((x) => (x.token === t.token ? { ...x, enabled: t.enabled } : x)));
+      setError('network error updating topic');
     }
   }
 
