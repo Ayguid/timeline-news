@@ -39,6 +39,33 @@ function tokens(title: string): string[] {
     .filter((w) => w.length > 2 && !STOPWORDS.has(w));
 }
 
+/**
+ * Detect multi-topic "digest" headlines. A roundup materializes several
+ * unrelated stories in one headline (e.g. NPR: "SCOTUS allows Trump's
+ * ballroom project to continue. And, the Army secretary…"). If such a title
+ * is clustered, its shared tokens BRIDGE two otherwise-unrelated events into
+ * one (observed live with the army-secretary / SCOTUS- ballroom merge). These
+ * don't represent a single event, so we EXCLUDE them from clustering.
+ *
+ * Conservative: only flag explicit digest markers or a second-clause joiner —
+ * a lone "and" in a normal headline must not be caught.
+ */
+function isDigestTitle(title: string): boolean {
+  const t = title.trim();
+  // Explicit live-blog / roundup / recap markers.
+  if (/(News live|Live blog|Live :|Live:|In case you missed|What to know|Here.s what happened|roundup|recap|overnight digest|morning digest|open thread)/i.test(t)) {
+    return true;
+  }
+  // A sentence fragment followed by a high-level joiner = a second, separate
+  // topic. e.g. "…continue. And, the Army secretary" / "…continue. Plus, …".
+  // The lookbehind `(?<=[a-z0-9])` ensures the period ends a real sentence and
+  // is NOT an abbreviation period (e.g. "U.S. and Venezuela" must not match).
+  if (/(?<=[a-z0-9])\.[ ]+(And|But|Also|Meanwhile|Plus|Elsewhere|Separately),?/i.test(t)) {
+    return true;
+  }
+  return false;
+}
+
 /** Word-like tokens that are distinctive enough to signal "same event":
  *  length >= 6 (skips small function-ish words), stopword-filtered. */
 function distinctive(title: string): Set<string> {
@@ -134,21 +161,26 @@ export function clusterArticles(articles: RawArticleInput[], opts?: {
   const mergeHours = opts?.mergeHours ?? 72;
   const mergeTokens = opts?.mergeTokens ?? 2;
 
-  const byId = new Map(articles.map((a) => [a.id, a]));
-  const tokenSets = new Map(articles.map((a) => [a.id, new Set(tokens(a.title))]));
+  // Exclude multi-topic digest/roundup headlines up front — they don't
+  // represent a single event and would otherwise act as false bridges that
+  // fuse unrelated stories into one event (see isDigestTitle).
+  const clusterable = articles.filter((a) => !isDigestTitle(a.title));
+
+  const byId = new Map(clusterable.map((a) => [a.id, a]));
+  const tokenSets = new Map(clusterable.map((a) => [a.id, new Set(tokens(a.title))]));
   const used = new Set<string>();
   const groups: string[][] = [];
 
   // Pass 1 — greedy: seed each event with an unused article, absorb close
   // siblings within the time window. O(n^2) worst case — fine for <~500.
-  for (const seed of articles) {
+  for (const seed of clusterable) {
     if (used.has(seed.id)) continue;
 
     const group: string[] = [seed.id];
     used.add(seed.id);
     const seedTokens = tokenSets.get(seed.id)!;
 
-    for (const other of articles) {
+    for (const other of clusterable) {
       if (used.has(other.id)) continue;
       if (!withinWindow(seed.publishedAt, other.publishedAt, windowHours)) continue;
       if (jaccard(seedTokens, tokenSets.get(other.id)!) >= minOverlap) {
