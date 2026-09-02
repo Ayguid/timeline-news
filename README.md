@@ -10,6 +10,34 @@ timeline per user — a **record**, not a feed.
 
 ---
 
+## If you're a fresh session (AI or human), start here
+
+Quick bootstrap so you don't rediscover decisions that are already made:
+
+1. **Read [`soul.md`](./soul.md)** — the non-negotiables (attribution, multiple
+   sources, event-time ordering, visible bias).
+2. **The defining decision:** SAVE-ALL / VIEW-FILTER. Every clustered story is
+   persisted *permanently*; the timeline is filtered *at read time* by the
+   user's CURRENT active topics × enabled sources. Do **not** regress to
+   "bake topic-match into stored events at pipeline time" or "delete personal
+   events on re-derive" — both were bugs we fixed.
+3. **Schema/roles:** two-tier sources — `sources.owner_id` NULL = global
+   (admin-curated), set = a user's personal source. Admin is `ADMIN_EMAILS`
+   (env list), **not** seeded. Personal-source cap = 3.
+4. **Files to open first:**
+   - `src/lib/timeline.ts` — the read-time filter (getTimelineEvents)
+   - `src/lib/pipeline.ts` — shared ingest+cluster core (`scripts/run-pipeline.ts` is the cron wrapper)
+   - `src/lib/cluster.ts` — dedup/clustering (the hard problem; digest-title filter + time-window O(n²))
+   - `src/lib/session.ts` — auth + admin role
+   - `src/app/api/timeline/route.ts` — timeline endpoint
+5. **Secrets live outside the repo** (`.env` gitignored): `DATABASE_URL`,
+   `AUTH_SECRET`, `ADMIN_EMAILS`. GitHub Actions secrets mirror `DATABASE_URL`
+   + `AUTH_SECRET`. Confirm the DB is reachable before assuming data exists.
+6. **Verify:** `npm run lint`, `npm run typecheck`, `npm run build`, then
+   `hermes verify --json`. Recent state via `git log --oneline -15`.
+
+---
+
 ## Status — v1 (working)
 
 **ingest → cluster → score → Postgres → API → timeline page.**
