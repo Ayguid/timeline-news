@@ -1,26 +1,10 @@
-import { sql } from '@/lib/db';
 import { currentUser } from '@/lib/session';
+import { getTimelineEvents, TimelineEvent } from '@/lib/timeline';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import LogoutButton from '@/components/logout-button';
 
-type TimelineEvent = {
-  id: string;
-  title: string;
-  summary: string | null;
-  eventDate: string;
-  significanceScore: number;
-  sourceCount: number | null;
-  status: string;
-  articles: Array<{
-    articleUrl: string | null;
-    title: string;
-    sourceName: string;
-    publishedAt: string;
-  }>;
-};
-
-function fmtDate(iso: string): string {
+function fmtDate(iso: Date | string): string {
   return new Date(iso).toLocaleDateString('en-US', {
     weekday: 'short', month: 'short', day: 'numeric', year: 'numeric',
   });
@@ -32,40 +16,7 @@ export default async function TimelinePage() {
   const session = await currentUser();
   if (!session?.id) redirect('/auth/signin');
 
-  const rows = await sql`
-    WITH visible AS (
-      SELECT DISTINCT e.id
-      FROM events e
-      JOIN event_articles ea ON ea.event_id = e.id
-      JOIN raw_articles a ON a.id = ea.article_id
-      JOIN sources s ON s.id = a.source_id
-      JOIN user_sources us ON us.source_id = s.id AND us.user_id = ${session.id}
-      WHERE e.user_id IS NULL AND us.enabled = true
-      UNION
-      SELECT id FROM events WHERE user_id = ${session.id}
-    )
-    SELECT e.id, e.title, e.summary, e.event_date AS "eventDate",
-           e.significance_score AS "significanceScore",
-           e.distinct_sources AS "sourceCount", e.status,
-           COALESCE(
-             json_agg(json_build_object(
-               'articleUrl', a.url,
-               'title', a.title,
-               'sourceName', s.name,
-               'publishedAt', a.published_at
-             ) ORDER BY a.published_at ASC) FILTER (WHERE a.id IS NOT NULL),
-             '[]'
-           ) AS articles
-    FROM events e
-    JOIN visible v ON v.id = e.id
-    LEFT JOIN event_articles ea ON ea.event_id = e.id
-    LEFT JOIN raw_articles a ON a.id = ea.article_id
-    LEFT JOIN sources s ON s.id = a.source_id
-    WHERE e.status IN ('approved', 'proposed')
-    GROUP BY e.id
-    ORDER BY e.event_date ASC
-  `;
-  const events = rows as unknown as TimelineEvent[];
+  const { events } = await getTimelineEvents();
 
   return (
     <div className="wrap">

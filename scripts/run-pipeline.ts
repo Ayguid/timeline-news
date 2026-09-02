@@ -140,15 +140,11 @@ async function runScopedCluster(
   scope: Scope,
   preload: { defaultByLang: Map<string, string[]>; userByUidLang: Map<string, Map<string, string[]>>; disabledSet: Set<string> },
 ): Promise<number> {
-  // Personal events are a DERIVED view of the owner's topics. So when the owner
-  // changes topics (enables/disables), the previous personal events no longer
-  // reflect their current preferences — drop them so they're re-derived from
-  // the fresh articles + current topics in this run. (Global events are shared
-  // and only re-derived when fresh corroborated articles appear, which is fine.)
-  if (scope.userId) {
-    await sql`DELETE FROM event_articles WHERE event_id IN (SELECT id FROM events WHERE user_id = ${scope.userId})`;
-    await sql`DELETE FROM events WHERE user_id = ${scope.userId}`;
-  }
+  // NOTE: news is stored PERMANENTLY. We never delete a user's events here —
+  // that would lose news that should reappear when they re-enable a topic.
+  // Which events a user SEES is decided at READ time by their current topics
+  // (see /api/timeline); the pipeline's job is just to record every clustered
+  // story so none is ever lost.
 
   const articles = await sql`
     SELECT a.id, a.source_id AS "sourceId", a.url, a.title, a.published_at AS "publishedAt",
@@ -185,13 +181,10 @@ async function runScopedCluster(
       tokens: tokensForScope(scope, cand.lang, preload),
     });
 
-    // The significance bar applies to both scopes (soul.md #5). Personal
-    // personalization comes from WHOSE topics scored it, not a weaker bar.
-    if (scored.significanceScore < THRESHOLDS.propose) {
-      console.log(`  - below bar (${scored.significanceScore}): ${cand.title.slice(0, 60)}`);
-      continue;
-    }
-
+    // Store EVERY clustered story so it can be surfaced later by topic. The
+    // significance score is computed for ranking/approved-vs-proposed, but
+    // storage is not gated on it — the page filters at read time by the
+    // user's current topics (soul.md: save all news, filter on view).
     const autoApproved = scored.significanceScore >= THRESHOLDS.autoApprove;
     const status = autoApproved ? 'approved' : 'proposed';
     const eventId = newId('evt');
@@ -199,11 +192,11 @@ async function runScopedCluster(
     await sql`
       INSERT INTO events
         (id, user_id, title, summary, event_date, date_inferred, source_count,
-         distinct_sources, topic_match_score, significance_score, status, approval_source)
+         distinct_sources, topic_match_score, significance_score, status, approval_source, lang)
       VALUES
         (${eventId}, ${scope.userId}, ${cand.title}, ${cand.summary},
          ${cand.eventDate}, true, ${scored.sourceCount}, ${cand.sourceIds.length},
-         ${scored.topicMatchScore}, ${scored.significanceScore}, ${status}, 'auto')
+         ${scored.topicMatchScore}, ${scored.significanceScore}, ${status}, 'auto', ${cand.lang})
       ON CONFLICT DO NOTHING
     `;
 
