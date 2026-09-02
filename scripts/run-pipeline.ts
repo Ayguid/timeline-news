@@ -140,6 +140,16 @@ async function runScopedCluster(
   scope: Scope,
   preload: { defaultByLang: Map<string, string[]>; userByUidLang: Map<string, Map<string, string[]>>; disabledSet: Set<string> },
 ): Promise<number> {
+  // Personal events are a DERIVED view of the owner's topics. So when the owner
+  // changes topics (enables/disables), the previous personal events no longer
+  // reflect their current preferences — drop them so they're re-derived from
+  // the fresh articles + current topics in this run. (Global events are shared
+  // and only re-derived when fresh corroborated articles appear, which is fine.)
+  if (scope.userId) {
+    await sql`DELETE FROM event_articles WHERE event_id IN (SELECT id FROM events WHERE user_id = ${scope.userId})`;
+    await sql`DELETE FROM events WHERE user_id = ${scope.userId}`;
+  }
+
   const articles = await sql`
     SELECT a.id, a.source_id AS "sourceId", a.url, a.title, a.published_at AS "publishedAt",
            s.lang AS lang

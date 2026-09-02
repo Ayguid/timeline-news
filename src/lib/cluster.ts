@@ -130,7 +130,7 @@ export function clusterArticles(articles: RawArticleInput[], opts?: {
   mergeTokens?: number; // distinctive shared tokens required to merge fragments
 }): EventCandidate[] {
   const windowHours = opts?.windowHours ?? 24;
-  const minOverlap = opts?.minOverlap ?? 0.35;
+  const minOverlap = opts?.minOverlap ?? 0.22;
   const mergeHours = opts?.mergeHours ?? 72;
   const mergeTokens = opts?.mergeTokens ?? 2;
 
