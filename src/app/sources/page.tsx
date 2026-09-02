@@ -39,6 +39,8 @@ export default function SourcesPage() {
   const [revision, setRevision] = useState(0);
   // pending actions (toggle/add/edit/delete) to disable buttons against double-clicks
   const { run, isPending } = usePending();
+  // which source is currently doing an on-demand fetch (shown as a spinner)
+  const [refreshingId, setRefreshingId] = useState<string | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -83,7 +85,9 @@ export default function SourcesPage() {
 
   /** Toggle a GLOBAL source in the user's selection. Optimistic: flip the
    * On/Off pill immediately (no flash back → no double-tap window), persist,
-   * revert only on failure. */
+   * revert only on failure. When ENABLING, trigger an on-demand refresh so
+   * the source's news appears without waiting for the cron (the refresh route
+   * skips the fetch if stored data is already fresh). */
   async function toggleGlobal(id: string, enabled: boolean) {
     setError(null);
     const nextEnabled = !enabled;
@@ -94,8 +98,20 @@ export default function SourcesPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ enabled: nextEnabled }),
       });
-      if (res.ok) setRevision((r) => r + 1);
-      else {
+      if (res.ok) {
+        if (nextEnabled) {
+          // On-demand fetch (the route is a no-op if data is already fresh).
+          setRefreshingId(id);
+          try {
+            await fetch(`/api/sources/${id}/refresh`, { method: 'POST' });
+          } catch {
+            // refresh is best-effort; a scheduled run will cover it
+          } finally {
+            setRefreshingId(null);
+          }
+        }
+        setRevision((r) => r + 1);
+      } else {
         const d = await res.json().catch(() => ({}));
         setError(d.error ?? 'failed to toggle');
         setGlobal((prev) => prev.map((s) => (s.id === id ? { ...s, enabled } : s)));
@@ -219,11 +235,11 @@ export default function SourcesPage() {
                       <Button
                         variant="pill"
                         size="sm"
-                        loading={isPending(g.id)}
+                        loading={isPending(g.id) || refreshingId === g.id}
                         onClick={() => run(g.id, () => toggleGlobal(g.id, g.enabled ?? false))}
                         style={{ border: '1px solid' + (g.enabled ? ' var(--approve)' : ' var(--line)'), color: g.enabled ? 'var(--approve)' : 'var(--muted)', borderRadius: 999, padding: '3px 12px', cursor: 'pointer', background: 'none' }}
                       >
-                        {g.enabled ? 'On' : 'Off'}
+                        {refreshingId === g.id ? 'Fetching' : (g.enabled ? 'On' : 'Off')}
                       </Button>
                     </span>
                   </li>
