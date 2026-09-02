@@ -1,5 +1,5 @@
 import { currentUser } from '@/lib/session';
-import { getTimelineEvents, TimelineEvent } from '@/lib/timeline';
+import { getTimelineEvents } from '@/lib/timeline';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import LogoutButton from '@/components/logout-button';
