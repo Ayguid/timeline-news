@@ -172,7 +172,10 @@ export function clusterArticles(articles: RawArticleInput[], opts?: {
   const groups: string[][] = [];
 
   // Pass 1 — greedy: seed each event with an unused article, absorb close
-  // siblings within the time window. O(n^2) worst case — fine for <~500.
+  // siblings within the time window. O(n^2) worst case — fine for <~500, and
+  // empirically the time-window short-circuit beats a shared-token index: news
+  // headlines share common words (trump/russia/minister) so inverted buckets
+  // are dense and cost more than the plain scan. (Benchmarked at 9k articles.)
   for (const seed of clusterable) {
     if (used.has(seed.id)) continue;
 
