@@ -70,16 +70,21 @@ export async function getTimelineEvents(opts: {
 
   const rows = await sql`
     WITH vis_ea AS (
-      -- event_articles restricted to sources this user can actually see:
+      -- Start from events in the date window (uses idx_events_date), then
+      -- restrict to articles/sources this user can actually see:
       --   global sources they currently have enabled + their personal sources.
+      -- Pushing the date cutoff HERE (not at the outer WHERE) stops Postgres
+      -- from scanning every event_article in the whole archive.
       SELECT ea.event_id, ea.article_id, s.id AS sid
-      FROM event_articles ea
+      FROM events e
+      JOIN event_articles ea ON ea.event_id = e.id
       JOIN raw_articles a ON a.id = ea.article_id
       JOIN sources s ON s.id = a.source_id
-      WHERE (s.owner_id IS NULL AND EXISTS (
+      WHERE e.event_date > now() - (${days} || ' days')::interval
+        AND ((s.owner_id IS NULL AND EXISTS (
               SELECT 1 FROM user_sources us
               WHERE us.source_id = s.id AND us.user_id = ${session.id} AND us.enabled = true))
-         OR (s.owner_id = ${session.id})
+         OR (s.owner_id = ${session.id}))
     ),
     vis_events AS (
       SELECT ve.event_id,
