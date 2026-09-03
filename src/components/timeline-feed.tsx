@@ -111,7 +111,6 @@ export default function TimelineFeed() {
             <div key={ev.id} className={`event ${ev.status}`}>
               <div className="event-date">{fmtDate(ev.eventDate)}</div>
               <h2>{ev.title}</h2>
-              {ev.summary && ev.summary !== ev.title && <div className="summary">{ev.summary}</div>}
               <div className="scores">
                 <span className="badge">{ev.sourceCount} source(s)</span>
                 <span className="badge">sig {ev.significanceScore}</span>
