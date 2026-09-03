@@ -134,7 +134,7 @@ function tokensForScope(scope: Scope, candLang: string, preload: TopicPreload): 
 export async function clusterScopePersist(scope: Scope, preload: TopicPreload): Promise<number> {
   const articles = await sql`
     SELECT a.id, a.source_id AS "sourceId", a.url, a.title, a.published_at AS "publishedAt",
-           s.lang AS lang
+           s.lang AS lang, a.summary_excerpt AS summary
     FROM raw_articles a
     JOIN sources s ON s.id = a.source_id
     LEFT JOIN event_articles ea ON ea.article_id = a.id
@@ -151,6 +151,7 @@ export async function clusterScopePersist(scope: Scope, preload: TopicPreload): 
     title: a.title,
     publishedAt: new Date(a.publishedAt),
     lang: a.lang ?? undefined,
+    summary: a.summary ?? undefined,
   })));
   console.log(`[${scope.label}] ${articles.length} articles -> ${candidates.length} candidate event(s)`);
 
