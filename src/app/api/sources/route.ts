@@ -52,7 +52,7 @@ export async function GET() {
   const global = await sql`
     SELECT s.id, s.name, s.feed_url AS "feedUrl", s.adapter_type AS "adapterType",
            s.lang, s.region, s.active,
-           COALESCE(us.enabled, false) AS "enabled"
+           COALESCE(us.enabled, true) AS "enabled"
     FROM sources s
     LEFT JOIN user_sources us ON us.source_id = s.id AND us.user_id = ${session.id}
     WHERE s.owner_id IS NULL

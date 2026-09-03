@@ -81,9 +81,9 @@ export async function getTimelineEvents(opts: {
       JOIN raw_articles a ON a.id = ea.article_id
       JOIN sources s ON s.id = a.source_id
       WHERE e.event_date > now() - (${days} || ' days')::interval
-        AND ((s.owner_id IS NULL AND EXISTS (
+        AND ((s.owner_id IS NULL AND NOT EXISTS (
               SELECT 1 FROM user_sources us
-              WHERE us.source_id = s.id AND us.user_id = ${session.id} AND us.enabled = true))
+              WHERE us.source_id = s.id AND us.user_id = ${session.id} AND us.enabled = false))
          OR (s.owner_id = ${session.id}))
     ),
     vis_events AS (
