@@ -31,6 +31,7 @@ export default function TimelineFeed() {
   const [cursor, setCursor] = useState<TimelineCursor | null>(null);
   const [hasMore, setHasMore] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [initial, setInitial] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const loadingRef = useRef(false);
@@ -38,6 +39,7 @@ export default function TimelineFeed() {
   const loadMore = useCallback(async () => {
     if (loadingRef.current || !hasMore || initial) return;
     loadingRef.current = true;
+    setLoadingMore(true);
     try {
       const res = await fetchPage(cursor);
       setEvents((prev) => {
@@ -50,6 +52,7 @@ export default function TimelineFeed() {
       setError('Could not load more.');
     } finally {
       loadingRef.current = false;
+      setLoadingMore(false);
     }
   }, [cursor, hasMore, initial]);
 
@@ -149,8 +152,14 @@ export default function TimelineFeed() {
               )}
             </div>
           ))}
-          <div ref={sentinelRef} className="scroll-sentinel" aria-hidden="true">
-            {hasMore ? (loading ? 'Loading…' : '') : <p className="end">— end —</p>}
+          <div ref={sentinelRef} className="scroll-sentinel">
+            {loadingMore && (
+              <div className="load-more">
+                <span className="spinner" aria-hidden="true" />
+                <span>Loading more…</span>
+              </div>
+            )}
+            {!hasMore && !loadingMore && <p className="end">— end —</p>}
           </div>
         </>
       )}

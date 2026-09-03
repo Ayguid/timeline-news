@@ -59,8 +59,13 @@ nav.top { display: flex; gap: 16px; align-items: center; font-size: 0.9rem; }
 .empty { color: var(--muted); padding: 40px 0; text-align: center; }
 
 /* infinite scroll sentinel / end-of-list */
-.scroll-sentinel { height: 1px; }
+.scroll-sentinel { min-height: 50px; }
 .scroll-sentinel .end { color: var(--muted); text-align: center; padding: 24px 0; font-size: 0.9rem; }
+.load-more {
+  display: flex; align-items: center; justify-content: center; gap: 10px;
+  color: var(--muted); padding: 20px 0; font-size: 0.9rem;
+}
+.load-more .spinner { width: 16px; height: 16px; border-width: 2px; }
 
 /* ---------- auth (sign-in) ---------- */
 .auth-wrap {
