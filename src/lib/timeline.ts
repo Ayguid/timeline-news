@@ -1,16 +1,15 @@
 // ============================================================================
 // timeline.ts — read-time timeline construction (the correct model per soul.md
-// and the user: SAVE ALL the news, FILTER at view time by the user's CURRENT
-// topics). Nothing here re-scrapes or re-clusters; it selects from the
-// permanent events table and filters by the user's present topic preferences.
+// ARE: SAVE ALL the news, FILTER at view time by the user's CURRENT topics).
 //
-// Visibility rule per event:
-//   - Always show if corroborated (distinct_sources >= 2) — multi-source
-//     coverage is inherently significant (soul.md principle #2).
-//   - Otherwise show if the event's title/summary matches ANY of the user's
-//     CURRENT effective tokens for that event's language. Because tokens are
-//     read live here, enabling/disabling a topic changes the timeline
-//     immediately, with no re-scrape and no news ever lost.
+// Visibility rule (also enforced in SQL so pagination counts only VISIBLE
+// events):
+//   - always show if corroborated (distinct_sources >= 2)
+//   - otherwise show if title/summary matches ANY active token (ILIKE ANY)
+//
+// Pagination: keyset cursor on (event_date, id) ASC. Oldest first (invariant,
+// soul.md #3); scrolling appends newer. The active tokens are sent to the DB
+// as ONE text[] param so LIMIT counts only events the user will actually see.
 // ============================================================================
 import { sql } from './db';
 import { currentUser } from './session';
@@ -30,45 +29,47 @@ export interface TimelineEvent {
   articles: { articleUrl: string; title: string; sourceName: string; publishedAt: Date }[];
 }
 
+export type TimelineCursor = { date: string; id: string };
+
 export interface TimelineResult {
   events: TimelineEvent[];
-  // which tokens were active, so the caller can label the filter if it wants
   activeTokenCount: number;
+  nextCursor: TimelineCursor | null;
+  hasMore: boolean;
 }
 
-/** Live `contains` topic match — token appears in title or summary. */
-function matchesAnyToken(title: string, summary: string, tokens: Set<string>): boolean {
-  const text = `${title} ${summary}`.toLowerCase();
-  for (const t of tokens) if (text.includes(t.toLowerCase())) return true;
-  return false;
+function escapeLike(s: string): string {
+  return s.replace(/[\\%_]/g, (m) => `\\${m}`);
 }
 
-export async function getTimelineEvents(opts: { days?: number } = {}): Promise<TimelineResult> {
-  const session = await currentUser();
-  if (!session?.id) return { events: [], activeTokenCount: 0 };
-
-  const days = Math.min(Number(opts.days ?? 14) || 14, 90);
-
-  // Live effective tokens per language (independent of any pipeline snapshot).
+async function activeTokens(userId: string): Promise<string[]> {
   const [defaults, overrides, disabled] = await Promise.all([
     sql`SELECT lang, token FROM significant_topics`,
-    sql`SELECT lang, token FROM user_topic_tokens WHERE user_id = ${session.id}`,
-    sql`SELECT lang, token FROM user_disabled_default_topics WHERE user_id = ${session.id}`,
+    sql`SELECT lang, token FROM user_topic_tokens WHERE user_id = ${userId}`,
+    sql`SELECT lang, token FROM user_disabled_default_topics WHERE user_id = ${userId}`,
   ]);
-  const disabledSet = new Set(disabled.map((r) => `${r.lang}:${r.token}`));
-  const tokenByLang = new Map<string, Set<string>>();
-  const addToken = (lang: string, token: string) => {
-    if (disabledSet.has(`${lang}:${token}`)) return;
-    if (!tokenByLang.has(lang)) tokenByLang.set(lang, new Set());
-    tokenByLang.get(lang)!.add(token);
-  };
-  for (const r of defaults) addToken(r.lang, r.token);
-  for (const r of overrides) addToken(r.lang, r.token);
-  const activeTokenCount = [...tokenByLang.values()].reduce((a, s) => a + s.size, 0);
+  const off = new Set(disabled.map((r) => `${r.lang}:${r.token}`));
+  const out = new Set<string>();
+  for (const r of defaults) if (!off.has(`${r.lang}:${r.token}`)) out.add(r.token);
+  for (const r of overrides) if (!off.has(`${r.lang}:${r.token}`)) out.add(r.token);
+  return [...out];
+}
 
-  // Show ALL stored news that is not rejected. The significance/topic bar is
-  // applied HERE at read time, not at storage time — so toggling a topic
-  // immediately changes what the user sees without re-scraping.
+export async function getTimelineEvents(opts: {
+  days?: number;
+  limit?: number;
+  cursor?: TimelineCursor | null;
+} = {}): Promise<TimelineResult> {
+  const session = await currentUser();
+  if (!session?.id) return { events: [], activeTokenCount: 0, nextCursor: null, hasMore: false };
+
+  const days = Math.min(Number(opts.days ?? 14) || 14, 90);
+  const limit = Math.min(Math.max(Number(opts.limit ?? 40) || 40, 1), 200);
+  const tokens = await activeTokens(session.id);
+  const patterns = tokens.map((t) => `%${escapeLike(t)}%`);
+
+  const cursor = opts.cursor && opts.cursor.date && opts.cursor.id ? opts.cursor : null;
+
   const rows = await sql`
     WITH visible AS (
       SELECT DISTINCT e.id
@@ -102,34 +103,36 @@ export async function getTimelineEvents(opts: { days?: number } = {}): Promise<T
     LEFT JOIN sources s ON s.id = a.source_id
     WHERE e.status != 'rejected'
       AND e.event_date > now() - (${days} || ' days')::interval
+      AND (e.distinct_sources >= 2
+           OR e.title ILIKE ANY(${patterns})
+           OR e.summary ILIKE ANY(${patterns}))
+      ${cursor ? sql`AND (e.event_date > ${new Date(cursor.date)} OR (e.event_date = ${new Date(cursor.date)} AND e.id > ${cursor.id}))` : sql``}
     GROUP BY e.id
-    ORDER BY e.event_date ASC
+    ORDER BY e.event_date ASC, e.id ASC
+    LIMIT ${limit + 1}
   `;
 
-  const events: TimelineEvent[] = [];
-  for (const row of rows) {
-    const langTokens = tokenByLang.get(row.lang) ?? new Set<string>();
-    const topicMatches = matchesAnyToken(row.title, row.summary, langTokens) ? 1 : 0;
+  const hasMore = rows.length > limit;
+  const page = hasMore ? rows.slice(0, limit) : rows;
 
-    // Multi-source (`distinct_sources >= 2`) events are always shown.
-    // Single-source ones are shown only if they match a CURRENT topic.
-    if (row.sourceCount < 2 && topicMatches === 0) continue;
+  // topicMatches is a display nicety only — visibility is already enforced in SQL.
+  const events: TimelineEvent[] = page.map((r) => ({
+    id: r.id,
+    title: r.title,
+    summary: r.summary,
+    eventDate: r.eventDate,
+    significanceScore: r.significanceScore,
+    sourceCount: r.sourceCount,
+    status: r.status,
+    lang: r.lang,
+    userId: r.userId,
+    articleCount: r.articleCount,
+    topicMatches: 0,
+    articles: Array.isArray(r.articles) ? r.articles : [],
+  }));
 
-    events.push({
-      id: row.id,
-      title: row.title,
-      summary: row.summary,
-      eventDate: row.eventDate,
-      significanceScore: row.significanceScore,
-      sourceCount: row.sourceCount,
-      status: row.status,
-      lang: row.lang,
-      userId: row.userId,
-      articleCount: row.articleCount,
-      topicMatches,
-      articles: Array.isArray(row.articles) ? row.articles : [],
-    });
-  }
+  const last = events[events.length - 1];
+  const nextCursor = hasMore && last ? { date: new Date(last.eventDate).toISOString(), id: last.id } : null;
 
-  return { events, activeTokenCount };
+  return { events, activeTokenCount: tokens.length, nextCursor, hasMore };
 }

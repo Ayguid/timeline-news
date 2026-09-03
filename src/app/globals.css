@@ -58,6 +58,10 @@ h1 { font-size: 1.6rem; margin: 8px 0 4px; }
 nav.top { display: flex; gap: 16px; align-items: center; font-size: 0.9rem; }
 .empty { color: var(--muted); padding: 40px 0; text-align: center; }
 
+/* infinite scroll sentinel / end-of-list */
+.scroll-sentinel { height: 1px; }
+.scroll-sentinel .end { color: var(--muted); text-align: center; padding: 24px 0; font-size: 0.9rem; }
+
 /* ---------- auth (sign-in) ---------- */
 .auth-wrap {
   min-height: 100vh; display: flex; align-items: center; justify-content: center;
