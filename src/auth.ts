@@ -55,7 +55,18 @@ function googleProvider() {
   const clientId = process.env.AUTH_GOOGLE_ID;
   const clientSecret = process.env.AUTH_GOOGLE_SECRET;
   if (!clientId || !clientSecret) return [];
-  return [Google({ clientId, clientSecret })];
+  return [
+    Google({
+      clientId,
+      clientSecret,
+      // Allow OAuth sign-in to merge into an existing account that was created
+      // via another provider (e.g. the email magic-link) with the SAME email.
+      // Safe here because both providers verify the email: a magic-link proves
+      // ownership, and Google returns a Google-verified email, so linking them
+      // to one user is correct rather than a takeover vector.
+      allowDangerousEmailAccountLinking: true,
+    }),
+  ];
 }
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
