@@ -8,13 +8,18 @@ const LANGS = ['en', 'es'];
 
 type DefaultTopic = { token: string; enabled: boolean };
 
-export default function TopicsEditor() {
+export default function TopicsEditor({ role }: { role: 'admin' | 'user' }) {
   const router = useRouter();
+  const isAdmin = role === 'admin';
   const [lang, setLang] = useState('en');
   const [defaults, setDefaults] = useState<DefaultTopic[]>([]);
   const [userTokens, setUserTokens] = useState<string[]>([]);
   const [newToken, setNewToken] = useState('');
   const [error, setError] = useState<string | null>(null);
+  // global (admin-managed) defaults, all langs
+  const [globalTokens, setGlobalTokens] = useState<{ lang: string; token: string }[]>([]);
+  const [newGlobal, setNewGlobal] = useState('');
+  const [globalLang, setGlobalLang] = useState('en');
   // inline edit state
   const [editingToken, setEditingToken] = useState<string | null>(null);
   const [editValue, setEditValue] = useState('');
@@ -39,6 +44,64 @@ export default function TopicsEditor() {
     })();
     return () => { alive = false; };
   }, [lang, router, revision]);
+
+  useEffect(() => {
+    let alive = true;
+    if (!isAdmin) return;
+    (async () => {
+      try {
+        const res = await fetch('/api/topics?global=true');
+        if (!res.ok) return;
+        const data = await res.json();
+        if (alive) setGlobalTokens((data.defaults ?? []).filter((x: { token: string }) => x.token));
+      } catch { /* ignore */ }
+    })();
+    return () => { alive = false; };
+  }, [isAdmin, router, revision]);
+
+  // --- admin: manage GLOBAL (shared) default topics ---
+  async function addGlobal(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    await run('add-global', async () => {
+      const res = await fetch('/api/topics', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ lang: globalLang, token: newGlobal, scope: 'global' }),
+      });
+      if (res.ok) { setNewGlobal(''); setRevision((r) => r + 1); }
+      else { const d = await res.json().catch(() => ({})); setError(d.error ?? 'failed to add global token'); }
+    });
+  }
+  async function removeGlobal(langG: string, token: string) {
+    await run(`rmg:${token}`, async () => {
+      await fetch('/api/topics', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ lang: langG, token, scope: 'global' }),
+      });
+      setRevision((r) => r + 1);
+    });
+  }
+  function beginEditGlobal(langG: string, token: string) {
+    setEditingToken(`${langG}:${token}`);
+    setEditValue(token);
+    setError(null);
+  }
+  async function saveEditGlobal(e: React.FormEvent) {
+    e.preventDefault();
+    if (!editingToken) return;
+    const [langG, oldToken] = editingToken.split(':');
+    const newToken = editValue.trim().toLowerCase();
+    if (!newToken || newToken === oldToken) { setEditingToken(null); return; }
+    const res = await fetch('/api/topics', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ lang: langG, oldToken, newToken, scope: 'global' }),
+    });
+    if (res.ok) { setEditingToken(null); setNewGlobal(''); setRevision((r) => r + 1); }
+    else { const d = await res.json().catch(() => ({})); setError(d.error ?? 'failed to rename'); setEditingToken(null); }
+  }
 
   async function addToken(e: React.FormEvent) {
     e.preventDefault();
@@ -211,6 +274,53 @@ export default function TopicsEditor() {
       </Button>
       </form>
       {error && <p style={{ color: '#e06c6c' }}>{error}</p>}
+
+      {isAdmin && (
+        <section style={{ marginTop: 32, paddingTop: 24, borderTop: '1px solid var(--line)' }}>
+          <h3>Global topics (admin)</h3>
+          <p className="tagline">
+            Shared default significance topics for all users. When a global token is
+            removed, users’ per-topic off-switches for it are cleaned up too.
+          </p>
+          <div style={{ marginBottom: 12 }}>
+            <strong style={{ fontSize: '0.85rem', color: 'var(--muted)' }}>current:</strong>{' '}
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 8 }}>
+              {globalTokens.map(({ lang: lg, token }) =>
+                editingToken === `${lg}:${token}` ? (
+                  <form key={`${lg}:${token}`} onSubmit={saveEditGlobal} style={{ display: 'inline-flex', gap: 6, marginRight: 6 }}>
+                    <span style={{ fontSize: '0.8rem', color: 'var(--muted)' }}>{lg.toUpperCase()}</span>
+                    <input value={editValue} onChange={(e) => setEditValue(e.target.value)} autoFocus pattern="[a-z]{2,40}" style={{ width: 120 }} />
+                    <button type="submit">✓</button>
+                    <button type="button" onClick={() => setEditingToken(null)}>✕</button>
+                  </form>
+                ) : (
+                  <span key={`${lg}:${token}`} className="badge">
+                    {lg.toUpperCase()}:{token}{' '}
+                    <span style={{ cursor: 'pointer' }} title="rename" onClick={() => beginEditGlobal(lg, token)}>✎</span>{' '}
+                    <span style={{ cursor: 'pointer' }} title="remove" onClick={() => removeGlobal(lg, token)}>✕</span>
+                  </span>
+                ),
+              )}
+            </div>
+          </div>
+          <form onSubmit={addGlobal} style={{ display: 'flex', gap: 8, marginBottom: 8, maxWidth: 420 }}>
+            <select value={globalLang} onChange={(e) => setGlobalLang(e.target.value)}>
+              {LANGS.map((l) => <option key={l} value={l}>{l.toUpperCase()}</option>)}
+            </select>
+            <input
+              value={newGlobal}
+              onChange={(e) => setNewGlobal(e.target.value)}
+              placeholder="new global keyword"
+              pattern="[a-z]{2,40}"
+              required
+            />
+            <Button type="submit" loading={isPending('add-global')} disabled={!newGlobal.trim()}>
+              Add global
+            </Button>
+          </form>
+          {error && <p style={{ color: '#e06c6c' }}>{error}</p>}
+        </section>
+      )}
     </section>
   );
 }

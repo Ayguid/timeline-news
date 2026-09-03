@@ -289,7 +289,7 @@ export default function SourcesPage() {
         </>
       )}
 
-      <TopicsEditor />
+      <TopicsEditor role={role} />
     </div>
   );
 }

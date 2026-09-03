@@ -4,6 +4,7 @@
 // Usage: npx tsx scripts/seed.ts [--reset]
 // ============================================================================
 import { sql } from '../src/lib/db';
+import { DEFAULT_TOPICS } from '../data/topics.seed';
 
 const reset = process.argv.includes('--reset');
 const DEMO_EMAIL = process.env.DEMO_EMAIL ?? 'demo@timeline.news';
@@ -68,6 +69,18 @@ async function main() {
         ON CONFLICT (feed_url) DO NOTHING
       `;
     }
+
+    // default GLOBAL significance topics (idempotent seed; admins may edit/add/
+    // remove at runtime — this only backfills anything that's missing).
+    for (const t of DEFAULT_TOPICS) {
+      await sql`
+        INSERT INTO significant_topics (id, lang, token)
+        VALUES (${newId('top')}, ${t.lang}, ${t.token})
+        ON CONFLICT (lang, token) DO NOTHING
+      `;
+    }
+    const seededTopics = await sql`SELECT count(*)::int AS n FROM significant_topics`;
+    console.log(`[seed] default topics: ${seededTopics[0].n} in significant_topics.`);
 
     // enable all global sources for the demo user (so they have a timeline)
     await sql`
