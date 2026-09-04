@@ -32,6 +32,7 @@ function newId(prefix: string): string {
 
 export const authAdapter: Adapter = {
   async createUser(user) {
+    console.log('[adapter:createUser] input =', JSON.stringify(user));
     const id = newId('usr');
     const rows = await sql`
       INSERT INTO users (id, name, email, email_verified, image)
@@ -81,15 +82,26 @@ export const authAdapter: Adapter = {
   },
 
   async updateUser(user) {
-    const rows = await sql`
-      UPDATE users SET
-        name = ${user.name ?? null},
-        email = ${user.email ?? ''},
-        email_verified = ${user.emailVerified ?? null},
-        image = ${user.image ?? null}
-      WHERE id = ${user.id}
-      RETURNING *
-    `;
+    // CRITICAL: Auth.js calls updateUser({ id, emailVerified }) WITHOUT email
+    // on every magic-link re-login (handle-login.js:68). Writing `user.email ?? ''`
+    // would WIPE the stored email to an empty string — the root cause of the
+    // empty-email users and the duplicate-key error that follows. Only update
+    // fields that were actually provided.
+    const sets: string[] = [];
+    const params: (string | Date | null)[] = [user.id];
+    if (user.name !== undefined) { params.push(user.name); sets.push(`name = $${params.length}`); }
+    if (user.email !== undefined) { params.push(user.email); sets.push(`email = $${params.length}`); }
+    if (user.emailVerified !== undefined) { params.push(user.emailVerified); sets.push(`email_verified = $${params.length}`); }
+    if (user.image !== undefined) { params.push(user.image); sets.push(`image = $${params.length}`); }
+    if (sets.length === 0) {
+      // Nothing provided — re-read and return current row (avoids wiping data).
+      const rows = await sql`SELECT * FROM users WHERE id = ${user.id}`;
+      return rows.length ? rowToUser(rows[0]) : (user as unknown as AdapterUser);
+    }
+    const rows = await sql.unsafe(
+      `UPDATE users SET ${sets.join(', ')} WHERE id = $1 RETURNING *`,
+      params,
+    );
     return rowToUser(rows[0]);
   },
 
