@@ -8,7 +8,8 @@
 //   - personal events (user's own sources) always show
 // Articles / framing NEVER include a source the user disabled.
 //
-// Pagination: keyset cursor (event_date, id) ASC. Oldest first (soul.md #3).
+// Pagination: keyset cursor (event_date, id) DESC. Newest first — the first
+// page is the latest news, scrolling down loads progressively older events.
 // ============================================================================
 import { sql } from './db';
 import { currentUser } from './session';
@@ -114,8 +115,8 @@ export async function getTimelineEvents(opts: {
       AND e.event_date > now() - (${days} || ' days')::interval
       -- visible: corroborated by >=2 enabled sources, OR (covered AND topic-matched)
       AND (ve.enabled_sources >= 2 OR (ve.enabled_sources >= 1 AND (e.title ILIKE ANY(${patterns}) OR e.summary ILIKE ANY(${patterns}))))
-      ${cursor ? sql`AND (e.event_date > ${new Date(cursor.date)} OR (e.event_date = ${new Date(cursor.date)} AND e.id > ${cursor.id}))` : sql``}
-    ORDER BY e.event_date ASC, e.id ASC
+      ${cursor ? sql`AND (e.event_date < ${new Date(cursor.date)} OR (e.event_date = ${new Date(cursor.date)} AND e.id < ${cursor.id}))` : sql``}
+    ORDER BY e.event_date DESC, e.id DESC
     LIMIT ${limit + 1}
   `;
 
