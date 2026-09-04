@@ -27,23 +27,26 @@ function devSendVerificationRequest(params: { url: string; identifier: string })
 }
 
 function emailProvider() {
+  const resendKey = process.env.SMTP_PROVIDER_SECRET;
   const server = process.env.EMAIL_SERVER;
+  const from = process.env.EMAIL_FROM ?? 'News Timeline <noreply@timeline.news>';
   const isDev = process.env.NODE_ENV === 'development';
 
-  // Real SMTP in prod; capture in dev. Production without SMTP -> none.
-  if (server) {
-    return [
-      Email({
-        server,
-        from: process.env.EMAIL_FROM ?? 'News Timeline <noreply@timeline.news>',
-      }),
-    ];
+  // 1. Resend SMTP composed from the API key — the canonical way this app
+  //    sends magic links. smtp://resend:KEY@smtp.resend.com:587
+  if (resendKey) {
+    return [Email({ server: `smtp://resend:${resendKey}@smtp.resend.com:587`, from })];
   }
+  // 2. A full SMTP URL wins if explicitly set (generic SMTP provider).
+  if (server) {
+    return [Email({ server, from })];
+  }
+  // 3. Dev: capture the magic link to console + a file instead of emailing.
   if (isDev) {
     return [
       Email({
         server: 'smtp://capture:capture@localhost:25', // never used (custom send)
-        from: process.env.EMAIL_FROM ?? 'News Timeline <noreply@timeline.news>',
+        from,
         sendVerificationRequest: devSendVerificationRequest,
       }),
     ];
