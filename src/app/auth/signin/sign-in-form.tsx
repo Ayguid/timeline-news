@@ -16,21 +16,34 @@ export default function SignInForm({
   const router = useRouter();
   const [email, setEmail] = useState('');
   const [sent, setSent] = useState(false);
+  const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (sending) return; // guard against double-submit
     setError(null);
-    const res = await signIn('email', { email, redirect: false, callbackUrl: '/' });
-    if (res?.error) setError(res.error);
-    else setSent(true);
+    setSending(true);
+    try {
+      const res = await signIn('email', { email, redirect: false, callbackUrl: '/' });
+      if (res?.error) setError(res.error);
+      else setSent(true);
+    } finally {
+      setSending(false);
+    }
   }
 
   async function devLogin() {
+    if (sending) return;
     setError(null);
-    const res = await fetch('/api/dev-login');
-    if (res.ok) router.push('/');
-    else setError('dev login unavailable');
+    setSending(true);
+    try {
+      const res = await fetch('/api/dev-login');
+      if (res.ok) router.push('/');
+      else setError('dev login unavailable');
+    } finally {
+      setSending(false);
+    }
   }
 
   return (
@@ -77,8 +90,11 @@ export default function SignInForm({
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="you@example.com"
                 required
+                disabled={sending}
               />
-              <button type="submit" className="btn-primary">Continue with email</button>
+              <button type="submit" className="btn-primary" disabled={sending}>
+                {sending ? 'Sending…' : 'Continue with email'}
+              </button>
             </form>
           ))}
 
